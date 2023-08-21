@@ -15,6 +15,14 @@ class FeatureSelectorView(QMainWindow):
     def __init__(self):
         super().__init__()
 
+        # Initializing instance variables
+        self.about_dialog = None
+        self.status_bar = None
+        self.progress_bar = None
+        self.data_tables = None
+        self.results_text = None
+        self.results_layout = QVBoxLayout()  # Layout to display the results table
+
         # GUI Components initialization
         self.init_ui()
         self.apply_theme(LIGHT_THEME)
@@ -26,7 +34,12 @@ class FeatureSelectorView(QMainWindow):
         self.setWindowTitle('Feature Selector')
         self.resize(1200, 800)
 
-        # Menu Bar
+        # Initialize components
+        self.init_menu_bar()
+        self.init_status_bar()
+        self.init_layout()
+
+    def init_menu_bar(self):
         menu_bar = QMenuBar(self)
         self.setMenuBar(menu_bar)
 
@@ -68,6 +81,18 @@ class FeatureSelectorView(QMainWindow):
         self.about_dialog = AboutDialog(self)
         self.about_action.triggered.connect(self.about_dialog.show)
 
+    def init_status_bar(self):
+        self.status_bar = QStatusBar()
+        self.setStatusBar(self.status_bar)
+        self.status_bar.showMessage("Ready")
+
+        # Progress Bar (for feature selection progress)
+        self.progress_bar = QProgressBar()
+        self.status_bar.addPermanentWidget(self.progress_bar)
+        self.progress_bar.setMaximum(100)
+        self.progress_bar.setValue(0)
+
+    def init_layout(self):
         central_splitter = QSplitter(Qt.Horizontal, self)
         self.setCentralWidget(central_splitter)
 
@@ -88,16 +113,6 @@ class FeatureSelectorView(QMainWindow):
         placeholder_label.setAlignment(Qt.AlignCenter)
         right_panel.setWidget(placeholder_label)
         central_splitter.addWidget(right_panel)
-
-        self.status_bar = QStatusBar()
-        self.setStatusBar(self.status_bar)
-        self.status_bar.showMessage("Ready")
-
-        # Progress Bar (for feature selection progress)
-        self.progress_bar = QProgressBar()
-        self.status_bar.addPermanentWidget(self.progress_bar)
-        self.progress_bar.setMaximum(100)
-        self.progress_bar.setValue(0)
 
     def apply_theme(self, theme):
         self.setStyleSheet(f"""
@@ -173,3 +188,38 @@ class FeatureSelectorView(QMainWindow):
 
     def update_progress(self, value):
         self.progress_bar.setValue(value)
+
+    def display_results(self, selected_data, results):
+        self.results_text.clear()
+        self.results_text.append("Feature Selection Results:")
+
+        # Display details about feature selection methods
+        for method_name, result in results.items():
+            self.results_text.append(f"Method: {method_name}")
+            self.results_text.append(f"Feature Subset Count: {result['feature_count']}")
+            self.results_text.append(f"Removed Features: {', '.join(result['removed_features'])}")
+            if 'score' in result:  # If the score is applicable
+                self.results_text.append(f"Score: {result['score']}")
+            self.results_text.append("-" * 40)
+
+        # Create a table widget to display the selected data
+        table_widget = QTableWidget()
+        table_widget.setRowCount(min(100, len(selected_data)))
+        table_widget.setColumnCount(len(selected_data.columns))
+        table_widget.setHorizontalHeaderLabels(selected_data.columns)
+
+        # Fill the table with data (up to 100 rows)
+        for row_idx, row_data in selected_data.head(100).iterrows():
+            for col_idx, value in enumerate(row_data):
+                table_widget.setItem(row_idx, col_idx, QTableWidgetItem(str(value)))
+
+        # Create a widget to hold the results layout
+        results_widget = QWidget()
+        results_widget.setLayout(self.results_layout)
+        self.results_layout.addWidget(table_widget)
+
+        # Add the results widget to the left splitter
+        left_splitter = self.centralWidget().widget(0)
+        left_splitter.addWidget(results_widget)
+
+
