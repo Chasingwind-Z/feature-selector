@@ -1,8 +1,8 @@
 from PyQt5.QtCore import pyqtSignal
-from PyQt5.QtWidgets import (QMainWindow, QLabel, QComboBox, QTextEdit, QVBoxLayout,
-                             QWidget, QTableWidget, QMenuBar, QMenu, QSplitter, QStatusBar,
-                             QAction, QDockWidget, QHBoxLayout, QFrame, QPushButton, QTabWidget,
-                             QInputDialog, QHeaderView, QMenu, QTableWidgetItem, QLineEdit, QProgressBar)
+from PyQt5.QtWidgets import (QMainWindow, QLabel, QTextEdit, QVBoxLayout,
+                             QWidget, QTableWidget, QMenuBar, QSplitter, QStatusBar,
+                             QAction, QDockWidget, QHBoxLayout, QPushButton, QTabWidget,
+                             QMenu, QTableWidgetItem)
 from PyQt5.QtCore import Qt
 from views.themes import LIGHT_THEME, DARK_THEME
 from views.about_dialog import AboutDialog
@@ -16,12 +16,25 @@ class FeatureSelectorView(QMainWindow):
         super().__init__()
 
         # Initializing instance variables
+        self.about_action = None
+        self.feature_select_action = None
+        self.run_action = None
+        self.save_file_action = None
+        self.load_data_action = None
+        self.switch_theme_action = None
+        self.new_file_action = None
         self.about_dialog = None
         self.status_bar = None
-        self.progress_bar = None
         self.data_tables = None
         self.results_text = None
         self.results_layout = QVBoxLayout()  # Layout to display the results table
+
+        # 创建Stop和Save Results按钮，并设置为初始隐藏
+        self.stop_button = QPushButton("Stop")
+        self.stop_button.setVisible(False)  # 初始设置为隐藏
+        self.save_results_button = QPushButton("Save Results")
+        self.save_results_button.setFixedWidth(100)  # 设置按钮的宽度
+        self.save_results_button.setVisible(False)  # 初始设置为隐藏
 
         # GUI Components initialization
         self.init_ui()
@@ -49,9 +62,6 @@ class FeatureSelectorView(QMainWindow):
 
         self.load_data_action = QAction("Load Data", self)
         file_menu.addAction(self.load_data_action)
-
-        self.save_results_action = QAction("Save Results", self)
-        file_menu.addAction(self.save_results_action)
 
         self.save_file_action = QAction("Save File", self)
         file_menu.addAction(self.save_file_action)
@@ -86,12 +96,6 @@ class FeatureSelectorView(QMainWindow):
         self.setStatusBar(self.status_bar)
         self.status_bar.showMessage("Ready")
 
-        # Progress Bar (for feature selection progress)
-        self.progress_bar = QProgressBar()
-        self.status_bar.addPermanentWidget(self.progress_bar)
-        self.progress_bar.setMaximum(100)
-        self.progress_bar.setValue(0)
-
     def init_layout(self):
         central_splitter = QSplitter(Qt.Horizontal, self)
         self.setCentralWidget(central_splitter)
@@ -113,6 +117,24 @@ class FeatureSelectorView(QMainWindow):
         placeholder_label.setAlignment(Qt.AlignCenter)
         right_panel.setWidget(placeholder_label)
         central_splitter.addWidget(right_panel)
+
+        # Create a widget to hold the results layout
+        results_widget = QWidget()
+        results_widget.setLayout(self.results_layout)
+
+        # 将Stop和Save Results按钮添加到结果布局，并将Save Results按钮移到最左侧
+        results_buttons_layout = QHBoxLayout()
+        results_buttons_layout.addWidget(self.save_results_button)
+        results_buttons_layout.addWidget(self.stop_button)
+        results_buttons_layout.addStretch()  # 在布局的右侧添加空间，将Save Results按钮推到最左侧
+        self.results_layout.addLayout(results_buttons_layout)
+
+        # Add the results text
+        self.results_layout.addWidget(self.results_text)
+
+        # Add the results widget to the left splitter
+        left_splitter = self.centralWidget().widget(0)
+        left_splitter.addWidget(results_widget)
 
     def apply_theme(self, theme):
         self.setStyleSheet(f"""
@@ -186,10 +208,7 @@ class FeatureSelectorView(QMainWindow):
         menu.addAction(set_target_action)
         menu.exec_(global_pos)
 
-    def update_progress(self, value):
-        self.progress_bar.setValue(value)
-
-    def display_results(self, selected_data, results):
+    def display_results(self, results, selected_features,):
         self.results_text.clear()
         self.results_text.append("Feature Selection Results:")
 
@@ -197,29 +216,28 @@ class FeatureSelectorView(QMainWindow):
         for method_name, result in results.items():
             self.results_text.append(f"Method: {method_name}")
             self.results_text.append(f"Feature Subset Count: {result['feature_count']}")
-            self.results_text.append(f"Removed Features: {', '.join(result['removed_features'])}")
+            removed_features = result['details'].get('removed_features', [])
+            if removed_features:
+                self.results_text.append(f"Removed Features: {', '.join(removed_features)}")
             if 'score' in result:  # If the score is applicable
                 self.results_text.append(f"Score: {result['score']}")
             self.results_text.append("-" * 40)
 
-        # Create a table widget to display the selected data
-        table_widget = QTableWidget()
-        table_widget.setRowCount(min(100, len(selected_data)))
-        table_widget.setColumnCount(len(selected_data.columns))
-        table_widget.setHorizontalHeaderLabels(selected_data.columns)
+        # Display the final selected features
+        self.results_text.append("Final Selected Features:")
+        self.results_text.append(", ".join(selected_features))
 
-        # Fill the table with data (up to 100 rows)
-        for row_idx, row_data in selected_data.head(100).iterrows():
-            for col_idx, value in enumerate(row_data):
-                table_widget.setItem(row_idx, col_idx, QTableWidgetItem(str(value)))
+        # 显示Save Results按钮
+        self.save_results_button.setVisible(True)
 
-        # Create a widget to hold the results layout
-        results_widget = QWidget()
-        results_widget.setLayout(self.results_layout)
-        self.results_layout.addWidget(table_widget)
+    def show_save_results_button(self):
+        self.save_results_button.setVisible(True)
 
-        # Add the results widget to the left splitter
-        left_splitter = self.centralWidget().widget(0)
-        left_splitter.addWidget(results_widget)
+    def hide_save_results_button(self):
+        self.save_results_button.setVisible(False)
 
+    def show_stop_button(self):
+        self.stop_button.setVisible(True)
 
+    def hide_stop_button(self):
+        self.stop_button.setVisible(False)

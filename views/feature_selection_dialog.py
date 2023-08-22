@@ -1,120 +1,240 @@
+from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QCheckBox, QLabel,
-                             QLineEdit, QPushButton, QFormLayout, QScrollArea, QWidget, QMessageBox)
+                             QLineEdit, QPushButton, QFormLayout, QScrollArea, QWidget, QMessageBox, QComboBox,
+                             QGroupBox)
 
 
 class FeatureSelectionDialog(QDialog):
     def __init__(self):
         super().__init__()
-
+        self.selected_methods = None
+        self.methods_checkboxes = None
         self.init_ui()
 
     def init_ui(self):
         self.setWindowTitle("Feature Selection Methods Settings")
-        self.setGeometry(300, 300, 400, 400)
+        self.setGeometry(200, 200, 900, 600)
 
         layout = QVBoxLayout()
 
-        # Scroll Area for methods and their parameters
-        self.scroll_area = QScrollArea(self)
-        self.scroll_content = QWidget(self.scroll_area)
-        self.form_layout = QFormLayout(self.scroll_content)
+        # Scroll Area for methods selection
+        scroll_layout = QVBoxLayout()
 
-        # Add methods and parameters to the form layout
-        self.methods = {
-            "Missing Values": [("Threshold (0-1)", QLineEdit("0.6"))],
-            "Single Unique Value": [],
-            "Collinear Features": [("Threshold (0-1)", QLineEdit("0.95"))],
-            "Zero Importance Features": [],
-            "Statistical Tests": [("Top K Features (positive integer)", QLineEdit("10"))],
-            "RFE Selection": [("Number of Features (positive integer)", QLineEdit("10"))],
-            "Linear Model Selection": [("Threshold (positive float)", QLineEdit("0.1"))]
-        }
+        # Method configurations
+        methods_config = [
+            ("Missing Values", QLineEdit("0.6"), "Threshold: 0 to 1", "missing_threshold"),
+            ("Single Unique Value", None, None, None),
+            ("Collinear Features", QLineEdit("0.975"), "Threshold: 0 to 1", "correlation_threshold"),
+            ("Zero Importance Features", None, "Settings for Zero Importance Features", None),
+            ("Low Importance Features", QLineEdit("0.99"), "Threshold: 0 to 1", "cumulative_importance")
+        ]
 
-        for method, params in self.methods.items():
-            checkbox = QCheckBox(method, self)
-            self.form_layout.addRow(checkbox)
-            for param_name, param_input in params:
-                self.form_layout.addRow(QLabel(param_name), param_input)
+        self.methods_checkboxes = {}
 
-        self.scroll_content.setLayout(self.form_layout)
-        self.scroll_area.setWidget(self.scroll_content)
-        layout.addWidget(self.scroll_area)
+        for method_name, parameter_widget, range_text, param_name in methods_config:
+            group_box = QGroupBox(method_name)
+            group_box_layout = QVBoxLayout()
 
-        # Save button
+            # Add checkbox for each method
+            checkbox = QCheckBox("Enable")
+            group_box_layout.addWidget(checkbox)
+
+            if parameter_widget:
+                parameter_widget.setMaximumWidth(100)
+
+            if method_name == "Zero Importance Features":
+                hbox = QHBoxLayout()
+                task_combobox = QComboBox()
+                task_combobox.addItems(['classification', 'regression'])
+                eval_metric_combobox = QComboBox()
+                eval_metric_combobox.addItems(['auc', 'l2'])
+                n_iterations_line_edit = QLineEdit("10")
+                early_stopping_checkbox = QCheckBox("Early Stopping")
+                early_stopping_checkbox.setChecked(True)
+                hbox.addWidget(QLabel("Task:"))
+                hbox.addWidget(task_combobox)
+                hbox.addWidget(QLabel("Eval Metric:"))
+                hbox.addWidget(eval_metric_combobox)
+                hbox.addWidget(QLabel("Iterations:"))
+                hbox.addWidget(n_iterations_line_edit)
+                hbox.addWidget(early_stopping_checkbox)
+                group_box_layout.addLayout(hbox)
+                # Connect to the special method for zero importance checkbox
+                checkbox.stateChanged.connect(self.on_zero_importance_checkbox_changed)
+                self.methods_checkboxes[method_name] = (
+                checkbox, (task_combobox, eval_metric_combobox, n_iterations_line_edit, early_stopping_checkbox))
+            else:
+                if parameter_widget and param_name:
+                    hbox = QHBoxLayout()
+                    hbox.addWidget(QLabel(f"{param_name.capitalize()}:"))
+                    hbox.addWidget(parameter_widget)
+                    if range_text:
+                        hbox.addWidget(QLabel(range_text))
+                    group_box_layout.addLayout(hbox)
+                self.methods_checkboxes[method_name] = (checkbox, parameter_widget)
+
+            group_box.setLayout(group_box_layout)
+            scroll_layout.addWidget(group_box)
+
+        scroll_widget = QWidget()
+        scroll_widget.setLayout(scroll_layout)
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setWidget(scroll_widget)
+        layout.addWidget(scroll_area)
+
+        # Buttons
         btn_layout = QHBoxLayout()
-        save_btn = QPushButton("Save", self)
-        save_btn.clicked.connect(self.accept)
-        cancel_btn = QPushButton("Cancel", self)
+        apply_btn = QPushButton("Apply")
+        apply_btn.clicked.connect(self.apply_selection)
+        cancel_btn = QPushButton("Cancel")
         cancel_btn.clicked.connect(self.reject)
-        btn_layout.addWidget(save_btn)
+        btn_layout.addWidget(apply_btn)
         btn_layout.addWidget(cancel_btn)
-
         layout.addLayout(btn_layout)
+
         self.setLayout(layout)
 
-    def validate_threshold(self, value):
+    def on_zero_importance_checkbox_changed(self, state):
         try:
-            value = float(value)
-            return 0 <= value <= 1
-        except ValueError:
-            return False
+            # 获取 "Low Importance Features" 的复选框
+            low_importance_checkbox = self.methods_checkboxes["Low Importance Features"][0]
 
-    def validate_positive_integer(self, value):
+            # 如果 "Zero Importance Features" 复选框被选中，则启用 "Low Importance Features" 复选框
+            if state == Qt.Checked:
+                low_importance_checkbox.setEnabled(True)
+            else:
+                # 如果 "Zero Importance Features" 复选框未选中，则取消选中并禁用 "Low Importance Features" 复选框
+                low_importance_checkbox.setChecked(False)
+                low_importance_checkbox.setEnabled(False)
+        except Exception as e:
+            print("An error occurred:", e)
+
+    def apply_selection(self):
         try:
-            value = int(value)
-            return value > 0
-        except ValueError:
-            return False
+            selected_methods = {}
+            validation_errors = []
 
-    def validate_positive_float(self, value):
-        try:
-            value = float(value)
-            return value > 0
-        except ValueError:
-            return False
+            # Missing Values
+            checkbox, threshold_widget = self.methods_checkboxes["Missing Values"]
+            if checkbox.isChecked():
+                threshold = threshold_widget.text()
+                error_message = self.validate_parameter("Missing Values", threshold)
+                if error_message:
+                    validation_errors.append(error_message)
+                else:
+                    selected_methods["select_missing_values"] = {"missing_threshold": float(threshold)}
 
-    def accept(self):
-        validation_errors = []
+            # Single Unique Value
+            checkbox, _ = self.methods_checkboxes["Single Unique Value"]
+            if checkbox.isChecked():
+                selected_methods["select_single_unique_value"] = {}
 
-        # Validate the Missing Values threshold
-        threshold_value = self.methods["Missing Values"][0][1].text()
-        if not self.validate_threshold(threshold_value):
-            validation_errors.append("Missing Values threshold must be between 0 and 1.")
+            # Collinear Features
+            checkbox, threshold_widget = self.methods_checkboxes["Collinear Features"]
+            if checkbox.isChecked():
+                threshold = threshold_widget.text()
+                error_message = self.validate_parameter("Collinear Features", threshold)
+                if error_message:
+                    validation_errors.append(error_message)
+                else:
+                    selected_methods["select_collinear_features"] = {"correlation_threshold": float(threshold)}
 
-        # Validate the Collinear Features threshold
-        threshold_value = self.methods["Collinear Features"][0][1].text()
-        if not self.validate_threshold(threshold_value):
-            validation_errors.append("Collinear Features threshold must be between 0 and 1.")
+            # Zero Importance Features
+            checkbox, zero_importance_widgets = self.methods_checkboxes["Zero Importance Features"]
+            if checkbox.isChecked():
+                task_combobox, eval_metric_combobox, n_iterations_line_edit, early_stopping_checkbox = zero_importance_widgets
+                task = task_combobox.currentText()
+                eval_metric = eval_metric_combobox.currentText()
+                n_iterations = n_iterations_line_edit.text()
+                early_stopping = early_stopping_checkbox.isChecked()
+                param_values = (task, eval_metric, n_iterations, early_stopping)
 
-        # Validate Top K Features
-        top_k_value = self.methods["Statistical Tests"][0][1].text()
-        if not self.validate_positive_integer(top_k_value):
-            validation_errors.append("Top K Features must be a positive integer.")
+                error_message = self.validate_parameter("Zero Importance Features", param_values)
+                if error_message:
+                    validation_errors.append(error_message)
+                else:
+                    selected_methods["select_zero_importance_features"] = {
+                        "task": task,
+                        "eval_metric": eval_metric,
+                        "n_iterations": int(n_iterations),
+                        "early_stopping": early_stopping
+                    }
 
-        # Validate Number of Features for RFE Selection
-        num_features_value = self.methods["RFE Selection"][0][1].text()
-        if not self.validate_positive_integer(num_features_value):
-            validation_errors.append("Number of Features for RFE Selection must be a positive integer.")
+            # Low Importance Features
+            checkbox, cumulative_importance_threshold_widget = self.methods_checkboxes["Low Importance Features"]
+            if checkbox.isChecked():
+                cumulative_importance_threshold = cumulative_importance_threshold_widget.text()
+                error_message = self.validate_parameter("Low Importance Features", cumulative_importance_threshold)
+                if error_message:
+                    validation_errors.append(error_message)
+                else:
+                    selected_methods["select_low_importance_features"] = {
+                        "cumulative_importance_threshold": float(cumulative_importance_threshold)
+                    }
 
-        # Validate Threshold for Linear Model Selection
-        threshold_value = self.methods["Linear Model Selection"][0][1].text()
-        if not self.validate_positive_float(threshold_value):
-            validation_errors.append("Threshold for Linear Model Selection must be a positive float.")
+            # If there are validation errors, show them and do not proceed
+            if validation_errors:
+                error_message = "\n".join(validation_errors)
+                QMessageBox.critical(self, "Validation Errors", error_message)
+                return
 
-        if validation_errors:
-            error_message = "\n".join(validation_errors)
-            QMessageBox.warning(self, "Validation Error", error_message)
-        else:
-            super().accept()
+            self.selected_methods = selected_methods
+            self.accept()
+        except Exception as e:
+            print("An error occurred in apply_selection:", str(e))
+            import traceback
+            traceback.print_exc()
+
+    def validate_parameter(self, method_name, param_values):
+        print("Validating method:", method_name)
+
+        if method_name == "Missing Values":
+            try:
+                threshold = float(param_values)
+                if 0 <= threshold <= 1:
+                    return None
+                else:
+                    return "Missing Values threshold must be between 0 and 1."
+            except ValueError:
+                return "Missing Values threshold must be a number."
+
+        elif method_name == "Collinear Features":
+            try:
+                correlation_threshold = float(param_values)
+                if 0 <= correlation_threshold <= 1:
+                    return None
+                else:
+                    return "Collinear Features threshold must be between 0 and 1."
+            except ValueError:
+                return "Collinear Features threshold must be a number."
+
+        elif method_name == "Zero Importance Features":
+            task, eval_metric, n_iterations, early_stopping = param_values
+            if task not in ["classification", "regression"]:
+                return "Invalid task value for Zero Importance Features."
+            if eval_metric not in ["auc", "l2"]:
+                return "Invalid eval_metric value for Zero Importance Features."
+            try:
+                n_iterations = int(n_iterations)
+                if n_iterations <= 0:
+                    return "n_iterations must be greater than 0 for Zero Importance Features."
+            except ValueError:
+                return "n_iterations must be an integer for Zero Importance Features."
+            if not isinstance(early_stopping, bool):
+                return "Invalid early_stopping value for Zero Importance Features."
+
+        elif method_name == "Low Importance Features":
+            try:
+                cumulative_importance_threshold = float(param_values)
+                if 0 <= cumulative_importance_threshold <= 1:
+                    return None
+                else:
+                    return "Low Importance Features threshold must be between 0 and 1."
+            except ValueError:
+                return "Low Importance Features threshold must be a number."
+
+        return "Unknown method."
 
     def get_selected_methods(self):
-        selected_methods = {}
-        for row in range(self.form_layout.rowCount()):
-            widget = self.form_layout.itemAt(row, QFormLayout.FieldRole).widget()
-            if isinstance(widget, QCheckBox) and widget.isChecked():
-                method_name = widget.text()
-                params = {}
-                for param_name, param_input in self.methods[method_name]:
-                    params[param_name] = float(param_input.text())
-                selected_methods[method_name] = params
-        return selected_methods
+        return self.selected_methods

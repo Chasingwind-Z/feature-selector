@@ -20,8 +20,9 @@ class FeatureSelectorController:
     def setup_connections(self):
         self.view.load_data_action.triggered.connect(self.load_data)
         self.view.new_file_action.triggered.connect(self.new_file)
-        self.view.save_results_action.triggered.connect(self.save_results)
         self.view.save_file_action.triggered.connect(self.save_file)
+        self.view.save_results_button.clicked.connect(self.save_results)
+        self.view.stop_button.clicked.connect(self.stop_execution)
         self.view.switch_theme_action.triggered.connect(self.switch_theme)
         self.view.run_action.triggered.connect(self.execute_selected_methods)
         self.view.feature_select_action.triggered.connect(self.open_feature_selection_dialog)
@@ -54,6 +55,12 @@ class FeatureSelectorController:
                 data_table.setItem(row, col, QTableWidgetItem(str(data.iloc[row, col])))
         self.view.data_tables.addTab(data_table, title.split('/')[-1])
         self.view.status_bar.showMessage(f"Loaded data from {title}")
+
+    def stop_execution(self):
+        # 这里添加停止执行的代码
+
+        # 隐藏Stop按钮
+        self.view.hide_stop_button()
 
     def save_results(self):
         file_name, _ = QFileDialog.getSaveFileName(self.view, "Save Results", "", "Text files (*.txt);;All files (*)")
@@ -91,6 +98,11 @@ class FeatureSelectorController:
         self.view.apply_theme(self.current_theme)
 
     def execute_selected_methods(self):
+        # Check if data has been loaded in the GUI
+        if self.view.data_tables.count() == 0:
+            QMessageBox.warning(self.view, "No Data", "Please load data before running.")
+            return
+
         # Get the selected methods and parameters from the dialog
         methods = self.feature_methods_dialog.get_selected_methods()
         if methods is None:
@@ -102,26 +114,31 @@ class FeatureSelectorController:
             QMessageBox.warning(self.view, "Select Target", "Please select a target column before running.")
             return
 
-        # Get the current table from the view
-        current_table = self.view.data_tables.currentWidget()
+        # 显示Stop按钮
+        self.view.show_stop_button()
 
         # Get the target column name
+        current_table = self.view.data_tables.currentWidget()
         target_column_name = current_table.horizontalHeaderItem(self.view.target_column_index).text()
 
-        # Extract data from the current table (make sure this method returns a DataFrame)
+        # Extract data from the current table
         data = self.extract_data_from_table(current_table)
 
         # Load the data in the model
         self.model.load_data(data)
 
         # Perform feature selection in the model
-        selected_data, results = self.model.select_features(methods, target_column_name)
+        results, selected_features = self.model.select_features(methods, target_column_name)
 
-        # Update the view with the results (make sure to handle the data in the view as needed)
-        self.view.display_results(selected_data, results)
+        # Update the view with the results
+        self.view.display_results(results, selected_features)
+
+        # 隐藏Stop按钮，显示Save Results按钮
+        self.view.hide_stop_button()
+        self.view.show_save_results_button()
 
     def open_feature_selection_dialog(self):
-        self.feature_methods_dialog.show()
+        self.feature_methods_dialog.exec_()
 
     def rename_column(self, column_index):
         current_table = self.view.data_tables.currentWidget()
