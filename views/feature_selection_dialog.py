@@ -1,12 +1,14 @@
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QCheckBox, QLabel,
-                             QLineEdit, QPushButton, QFormLayout, QScrollArea, QWidget, QMessageBox, QComboBox,
+                             QLineEdit, QPushButton, QScrollArea, QWidget, QMessageBox, QComboBox,
                              QGroupBox)
 
 
 class FeatureSelectionDialog(QDialog):
     def __init__(self):
         super().__init__()
+        self.keep_one_hot_combo = None
+        self.keep_one_hot = None
         self.selected_methods = None
         self.methods_checkboxes = None
         self.init_ui()
@@ -16,6 +18,16 @@ class FeatureSelectionDialog(QDialog):
         self.setGeometry(200, 200, 900, 600)
 
         layout = QVBoxLayout()
+
+        # Keep One Hot Encoding option
+        keep_one_hot_layout = QHBoxLayout()
+        keep_one_hot_label = QLabel("Keep One Hot Encoding:")
+        self.keep_one_hot_combo = QComboBox()
+        self.keep_one_hot_combo.addItem('True')
+        self.keep_one_hot_combo.addItem('False')
+        keep_one_hot_layout.addWidget(keep_one_hot_label)
+        keep_one_hot_layout.addWidget(self.keep_one_hot_combo)
+        layout.addLayout(keep_one_hot_layout)
 
         # Scroll Area for methods selection
         scroll_layout = QVBoxLayout()
@@ -62,7 +74,7 @@ class FeatureSelectionDialog(QDialog):
                 # Connect to the special method for zero importance checkbox
                 checkbox.stateChanged.connect(self.on_zero_importance_checkbox_changed)
                 self.methods_checkboxes[method_name] = (
-                checkbox, (task_combobox, eval_metric_combobox, n_iterations_line_edit, early_stopping_checkbox))
+                    checkbox, (task_combobox, eval_metric_combobox, n_iterations_line_edit, early_stopping_checkbox))
             else:
                 if parameter_widget and param_name:
                     hbox = QHBoxLayout()
@@ -75,6 +87,10 @@ class FeatureSelectionDialog(QDialog):
 
             group_box.setLayout(group_box_layout)
             scroll_layout.addWidget(group_box)
+
+        # 初始化时禁用 "Low Importance Features" 的复选框
+        low_importance_checkbox = self.methods_checkboxes["Low Importance Features"][0]
+        low_importance_checkbox.setEnabled(False)
 
         scroll_widget = QWidget()
         scroll_widget.setLayout(scroll_layout)
@@ -123,12 +139,12 @@ class FeatureSelectionDialog(QDialog):
                 if error_message:
                     validation_errors.append(error_message)
                 else:
-                    selected_methods["select_missing_values"] = {"missing_threshold": float(threshold)}
+                    selected_methods["Missing Values"] = {"missing_threshold": float(threshold)}
 
             # Single Unique Value
             checkbox, _ = self.methods_checkboxes["Single Unique Value"]
             if checkbox.isChecked():
-                selected_methods["select_single_unique_value"] = {}
+                selected_methods["Single Unique Value"] = {}
 
             # Collinear Features
             checkbox, threshold_widget = self.methods_checkboxes["Collinear Features"]
@@ -138,7 +154,7 @@ class FeatureSelectionDialog(QDialog):
                 if error_message:
                     validation_errors.append(error_message)
                 else:
-                    selected_methods["select_collinear_features"] = {"correlation_threshold": float(threshold)}
+                    selected_methods["Collinear Features"] = {"correlation_threshold": float(threshold)}
 
             # Zero Importance Features
             checkbox, zero_importance_widgets = self.methods_checkboxes["Zero Importance Features"]
@@ -154,7 +170,7 @@ class FeatureSelectionDialog(QDialog):
                 if error_message:
                     validation_errors.append(error_message)
                 else:
-                    selected_methods["select_zero_importance_features"] = {
+                    selected_methods["Zero Importance Features"] = {
                         "task": task,
                         "eval_metric": eval_metric,
                         "n_iterations": int(n_iterations),
@@ -169,7 +185,7 @@ class FeatureSelectionDialog(QDialog):
                 if error_message:
                     validation_errors.append(error_message)
                 else:
-                    selected_methods["select_low_importance_features"] = {
+                    selected_methods["Low Importance Features"] = {
                         "cumulative_importance_threshold": float(cumulative_importance_threshold)
                     }
 
@@ -180,6 +196,10 @@ class FeatureSelectionDialog(QDialog):
                 return
 
             self.selected_methods = selected_methods
+            # Get the value from the Keep One Hot combo box
+            self.keep_one_hot = self.keep_one_hot_combo.currentText()
+            print(self.keep_one_hot)
+
             self.accept()
         except Exception as e:
             print("An error occurred in apply_selection:", str(e))
@@ -223,6 +243,7 @@ class FeatureSelectionDialog(QDialog):
                 return "n_iterations must be an integer for Zero Importance Features."
             if not isinstance(early_stopping, bool):
                 return "Invalid early_stopping value for Zero Importance Features."
+            return None
 
         elif method_name == "Low Importance Features":
             try:
@@ -238,3 +259,6 @@ class FeatureSelectionDialog(QDialog):
 
     def get_selected_methods(self):
         return self.selected_methods
+
+    def get_one_hot(self):
+        return self.keep_one_hot

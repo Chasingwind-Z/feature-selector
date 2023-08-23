@@ -9,6 +9,8 @@ from views.themes import LIGHT_THEME, DARK_THEME
 
 class FeatureSelectorController:
     def __init__(self):
+        self.data = None
+        self.result_data = None
         self.model = FeatureSelectorModel()
         self.view = FeatureSelectorView()
         self.feature_methods_dialog = FeatureSelectionDialog()
@@ -33,8 +35,8 @@ class FeatureSelectorController:
         file_names, _ = QFileDialog.getOpenFileNames(self.view, "Open CSV", "", "CSV files (*.csv);;All files (*)")
         for file_name in file_names:
             if file_name:
-                data = pd.read_csv(file_name)
-                self.display_data_in_table(data, file_name)
+                self.data = pd.read_csv(file_name)
+                self.display_data_in_table(self.data, file_name)
 
     def new_file(self):
         self.view.add_new_data_table()
@@ -105,6 +107,7 @@ class FeatureSelectorController:
 
         # Get the selected methods and parameters from the dialog
         methods = self.feature_methods_dialog.get_selected_methods()
+        keep_one_hot = self.feature_methods_dialog.get_one_hot() == 'True'
         if methods is None:
             QMessageBox.warning(self.view, "Select Methods", "Please select methods before running.")
             return
@@ -122,20 +125,40 @@ class FeatureSelectorController:
         target_column_name = current_table.horizontalHeaderItem(self.view.target_column_index).text()
 
         # Extract data from the current table
-        data = self.extract_data_from_table(current_table)
+        data = self.data
 
         # Load the data in the model
         self.model.load_data(data)
 
-        # Perform feature selection in the model
-        results, selected_features = self.model.select_features(methods, target_column_name)
+        # try:
+        #     success = self.model.method_result_signal.connect(self.view.display_method_result)
+        #     print("Connection success:", success)
+        # except Exception as e:
+        #     print("Exception occurred during connection:", e)
+        #
+        # try:
+        #     success = self.model.method_result_signal.connect(self.view.display_final_results)
+        #     print("Connection success:", success)
+        # except Exception as e:
+        #     print("Exception occurred during connection:", e)
 
-        # Update the view with the results
-        self.view.display_results(results, selected_features)
+        # Connect signals to slots for updating the view
+        self.model.method_result_signal.connect(self.view.display_method_result)
+        self.model.final_results_signal.connect(self.view.display_final_results)
+
+        # Perform feature selection in the model
+        result_data = self.model.select_features(methods, target_column_name, keep_one_hot)
 
         # 隐藏Stop按钮，显示Save Results按钮
         self.view.hide_stop_button()
         self.view.show_save_results_button()
+
+        # Save the result data for further use
+        self.result_data = result_data
+
+        # Disconnect the signals to avoid any unwanted connections
+        self.model.method_result_signal.disconnect(self.view.display_method_result)
+        self.model.final_results_signal.disconnect(self.view.display_final_results)
 
     def open_feature_selection_dialog(self):
         self.feature_methods_dialog.exec_()
@@ -155,16 +178,16 @@ class FeatureSelectorController:
             current_table.item(row, column_index).setBackground(Qt.yellow)
         self.view.status_bar.showMessage(f"Set column {column_index} as Target")
 
-    def extract_data_from_table(self, current_table):
-        rows, cols = current_table.rowCount(), current_table.columnCount()
-        data = []
-        for row in range(rows):
-            row_data = []
-            for col in range(cols):
-                item = current_table.item(row, col)
-                row_data.append(item.text() if item else "")
-            data.append(row_data)
-
-        headers = [current_table.horizontalHeaderItem(col).text() for col in range(cols)]
-        df = pd.DataFrame(data, columns=headers)
-        return df
+    # def extract_data_from_table(self, current_table):
+    #     rows, cols = current_table.rowCount(), current_table.columnCount()
+    #     data = []
+    #     for row in range(rows):
+    #         row_data = []
+    #         for col in range(cols):
+    #             item = current_table.item(row, col)
+    #             row_data.append(item.text() if item else "")
+    #         data.append(row_data)
+    #
+    #     headers = [current_table.horizontalHeaderItem(col).text() for col in range(cols)]
+    #     df = pd.DataFrame(data, columns=headers)
+    #     return df

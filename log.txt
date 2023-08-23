@@ -135,3 +135,23 @@ File 菜单里面的New File，新建文件后是新建一个数据表，用户�
 结果格式
 考虑以表格或其他结构化格式展示结果，以便用户快速理解和分析。
 提供一些基本的数据统计和可视化，例如特征的分布、重要性排名等。
+
+
+这是我目前所有代码，feature_selector_model.py文件在models文件夹，feature_selector_controller.py文件在controllers文件夹，剩下的都是views文件夹，然后main.py文件独立出来，用于调用主程序，你先[仔细][阅读]所有代码，了解我目前的实现程度和逻辑。\
+我这个gui程序主要是参考这个程序编写的，请你仔细阅读，并了解它的实现（特征选择方法、结果、绘图、数据处理等）
+你再仔细阅读它的绘图如何实现的，因为我主要是仿照他的代码来完成我的gui程序的，特征选择方法大部分也与他相同，只不过现在是gui程序，所以你得思考该如何将这些绘图逻辑拓展到我目前的gui程序里面
+现在返回结果是执行完后一次性全部返回，而我想要的效果是每处理完一个方法，就返回该方法的相关信息，最后处理完所有方法后，返回一个最终结果，需要controller和views相关函数的修改，以及model逻辑的修改，你有什么办法吗
+
+这个我需要稍微修改一下，因为用户可以有多种选择，而不是选择某一个或者全部方法去除，所以要根据前端传来的参数一个一个去除，每处理完一个方法，就返回该方法的相关信息，最后处理完所有方法后，返回一个最终结果
+
+这是我目前的model类，每个方法的函数都自动返回特征子集的特征，其实与Feature Selector Development.ipynb文件有所出入，他的每个方法都返回需要去除的特征和不同的details,然后有一个专门的remove_features（包含处理独热编码的逻辑）来去除特征，我现在也想采用方法，每个方法返回需要去除的特征和相关信息，去除特征专门使用一个函数来进行。同时初始化时定义了这些变量：# Dataframes recording information about features to remove
+        self.record_missing = None
+        self.record_single_unique = None
+        self.record_collinear = None
+        self.record_zero_importance = None
+        self.record_low_importance = None
+
+        self.feature_importances = None
+
+        # Dictionary to hold removal operations
+        self.removal_ops = {}，         我觉得这些变量确实也需要添加，因为后续画图功能需要使用到这些变量。                      同时，目前的逻辑是在所有的方法都处理完得出一个最终结果来一次性展示给用户，我现在想要的效果是每处理完一个方法，就返回该方法的相关信息（不同方法不一样，你可以看Feature selector Development.ipnb 的具体实现),最后处理完所有方法后，返回一个最终结果

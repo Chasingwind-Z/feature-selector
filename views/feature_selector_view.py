@@ -1,4 +1,4 @@
-from PyQt5.QtCore import pyqtSignal
+from PyQt5.QtCore import pyqtSignal, pyqtSlot
 from PyQt5.QtWidgets import (QMainWindow, QLabel, QTextEdit, QVBoxLayout,
                              QWidget, QTableWidget, QMenuBar, QSplitter, QStatusBar,
                              QAction, QDockWidget, QHBoxLayout, QPushButton, QTabWidget,
@@ -208,26 +208,27 @@ class FeatureSelectorView(QMainWindow):
         menu.addAction(set_target_action)
         menu.exec_(global_pos)
 
-    def display_results(self, results, selected_features,):
-        self.results_text.clear()
-        self.results_text.append("Feature Selection Results:")
-
-        # Display details about feature selection methods
-        for method_name, result in results.items():
-            self.results_text.append(f"Method: {method_name}")
-            self.results_text.append(f"Feature Subset Count: {result['feature_count']}")
-            removed_features = result['details'].get('removed_features', [])
-            if removed_features:
-                self.results_text.append(f"Removed Features: {', '.join(removed_features)}")
-            if 'score' in result:  # If the score is applicable
-                self.results_text.append(f"Score: {result['score']}")
+    @pyqtSlot(list, str)
+    def display_method_result(self, to_drop, details):
+        # to_drop 是一个包含要删除的特征名称的列表
+        # details 是一个字符串，描述了所选方法的具体细节
+        try:
+            self.results_text.append(f"Details: {details}")
+            self.results_text.append(f"Feature to Drop Count: {len(to_drop)}")
+            if to_drop:
+                self.results_text.append(f"Removed Features: {', '.join(to_drop)}")
             self.results_text.append("-" * 40)
+        except Exception as e:
+            print("Error in display_method_result:", e)
 
-        # Display the final selected features
-        self.results_text.append("Final Selected Features:")
-        self.results_text.append(", ".join(selected_features))
+    def display_final_results(self, removal_summary):
+        # removal_summary 是一个包含已删除特征的摘要信息的列表
 
-        # 显示Save Results按钮
+        self.results_text.append("Final Removal Summary:")
+        for summary in removal_summary:
+            self.results_text.append(summary)
+
+        # 显示保存结果按钮
         self.save_results_button.setVisible(True)
 
     def show_save_results_button(self):
