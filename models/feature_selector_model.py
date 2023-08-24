@@ -1,3 +1,5 @@
+from itertools import chain
+
 import numpy as np
 import pandas as pd
 from PyQt5.QtCore import pyqtSignal, QObject
@@ -39,6 +41,7 @@ class FeatureSelectorModel(QObject):
 
     def select_features(self, selected_methods_and_params, target_column_name, keep_one_hot=True):
         labels = self.data[target_column_name]  # Extracting the target column as labels
+        train = self.data.drop(columns=target_column_name)
         selected_removal_methods = []
 
         for method, params in selected_methods_and_params.items():
@@ -48,7 +51,7 @@ class FeatureSelectorModel(QObject):
                 to_drop, details = self.identify_missing(self.data, params['missing_threshold'])
                 print(to_drop)
                 print(details)
-                print(self.record_missing)
+                # print(self.record_missing)
             elif method == 'Single Unique Value':
                 selected_removal_methods.append('single_unique')
                 to_drop, details = self.identify_single_unique(self.data)
@@ -62,7 +65,10 @@ class FeatureSelectorModel(QObject):
             elif method == 'Zero Importance Features':
                 selected_removal_methods.append('zero_importance')
                 params['labels'] = labels  # Adding labels to the params
+                params['features'] = train
+                print(params)
                 to_drop, details = self.identify_zero_importance(**params)  # Using all params here
+                print(params)
                 print(to_drop)
                 print(details)
             elif method == 'Low Importance Features':
@@ -77,10 +83,10 @@ class FeatureSelectorModel(QObject):
         print(selected_removal_methods)
         # Finally, remove the features based on the results of all methods
         removal_summary = self.remove_features(selected_removal_methods, keep_one_hot)
-
+        print(4)
         # Emit signal to update the GUI with the final results
         self.final_results_signal.emit(removal_summary)
-
+        print(5)
         # Return the result data with the same feature order as the original data
         return self.result_data
 
@@ -151,7 +157,8 @@ class FeatureSelectorModel(QObject):
         self.correlation_threshold = correlation_threshold
 
         # Calculate the correlations between every column
-        corr_matrix = data.corr()
+        # 计算每一列之间的相关性，只包括数值型列
+        corr_matrix = data.corr(numeric_only=True)
 
         self.corr_matrix = corr_matrix
 
@@ -193,31 +200,67 @@ class FeatureSelectorModel(QObject):
     def identify_zero_importance(self, features, labels, eval_metric, task='classification', n_iterations=10,
                                  early_stopping=True):
         """
-        Identify the features with zero importance according to a gradient boosting machine.
-        The GBM can be trained with early stopping using a validation set to prevent overfitting.
-        The feature importances are averaged over n_iterations to reduce variance.
-        Uses the LightGBM implementation (http://lightgbm.readthedocs.io/en/latest/index.html)
-        """
 
+        Identify the features with zero importance according to a gradient boosting machine.
+        The gbm can be trained with early stopping using a validation set to prevent overfitting.
+        The feature importances are averaged over n_iterations to reduce variance.
+
+        Uses the LightGBM implementation (http://lightgbm.readthedocs.io/en/latest/index.html)
+
+        Parameters
+        --------
+        features : dataframe
+            Data for training the model with observations in the rows
+            and features in the columns
+
+        labels : array, shape = (1, )
+            Array of labels for training the model. These can be either binary
+            (if task is 'classification') or continuous (if task is 'regression')
+
+        eval_metric : string
+            Evaluation metric to use for the gradient boosting machine
+
+        task : string, default = 'classification'
+            The machine learning task, either 'classification' or 'regression'
+
+        n_iterations : int, default = 10
+            Number of iterations to train the gradient boosting machine
+
+        early_stopping : boolean, default = True
+            Whether or not to use early stopping with a validation set when training
+
+
+        Notes
+        --------
+
+        - Features are one-hot encoded to handle the categorical variables before training.
+        - The gbm is not optimized for any particular task and might need some hyperparameter tuning
+        - Feature importances, including zero importance features, can change across runs
+
+        """
+        print("o")
         # One hot encoding
         features = pd.get_dummies(features)
-
+        print(9)
         # Extract feature names
         feature_names = list(features.columns)
-
+        print(2)
         # Convert to np array
         features = np.array(features)
+        print(5)
         labels = np.array(labels).reshape((-1,))
-
+        print(3)
         # Empty array for feature importances
         feature_importance_values = np.zeros(len(feature_names))
-
+        print(4)
         print('Training Gradient Boosting Model\n')
 
         # Iterate through each fold
         for _ in range(n_iterations):
             if task == 'classification':
+                print("c")
                 model = lgb.LGBMClassifier(n_estimators=1000, learning_rate=0.05, verbose=-1)
+                print("d")
             elif task == 'regression':
                 model = lgb.LGBMRegressor(n_estimators=1000, learning_rate=0.05, verbose=-1)
             else:
@@ -225,39 +268,43 @@ class FeatureSelectorModel(QObject):
 
             # If training using early stopping, need a validation set
             if early_stopping:
+                print("c'")
                 train_features, valid_features, train_labels, valid_labels = train_test_split(features, labels,
                                                                                               test_size=0.15)
-
+                print("d'")
                 # Train the model with early stopping
                 model.fit(train_features, train_labels, eval_metric=eval_metric,
                           eval_set=[(valid_features, valid_labels)],
                           early_stopping_rounds=100, verbose=-1)
-
+                print("e'")
                 # Clean up memory
                 gc.enable()
+                print("f'")
                 del train_features, train_labels, valid_features, valid_labels
+                print("g'")
                 gc.collect()
             else:
+                print("e")
                 model.fit(features, labels)
 
             # Record the feature importances
             feature_importance_values += model.feature_importances_ / n_iterations
-
+        print("f")
         feature_importances = pd.DataFrame({'feature': feature_names, 'importance': feature_importance_values})
-
+        print("g")
         # Sort features according to importance
         feature_importances = feature_importances.sort_values('importance', ascending=False).reset_index(drop=True)
-
+        print("h")
         # Normalize the feature importances to add up to one
         feature_importances['normalized_importance'] = feature_importances['importance'] / feature_importances[
             'importance'].sum()
         feature_importances['cumulative_importance'] = np.cumsum(feature_importances['normalized_importance'])
-
+        print("i")
         # Extract the features with zero importance
         record_zero_importance = feature_importances[feature_importances['importance'] == 0.0]
-
+        print("j")
         to_drop = list(record_zero_importance['feature'])
-
+        print("k")
         self.feature_importances = feature_importances
         self.record_zero_importance = record_zero_importance
         self.removal_ops['zero_importance'] = to_drop
@@ -334,13 +381,44 @@ class FeatureSelectorModel(QObject):
         else:
             data = self.data.copy()
 
-        removal_summary = []
+        features_to_drop_sets = []  # To hold the sets of features to drop for each method
+        removal_summary = []  # To hold the summary details
 
         # Iterate through the selected methods
         for method in selected_methods:
+            # Get the features to drop for this method
             removed_features = self.removal_ops[method]
-            data = data.drop(columns=removed_features)
-            removal_summary.append(f'Removed {len(removed_features)} features using {method} method.')
+            # Append to the list of sets
+            features_to_drop_sets.append(set(removed_features))
+            # Append summary details
+            # removal_summary.append(
+            #     f'Identified {len(removed_features)} features using {method} method: {", ".join(removed_features)}'
+            # )
+
+        # Find the intersection (common features identified by all methods)
+        features_to_drop_intersection = list(set.intersection(*features_to_drop_sets))
+
+        # Find the union (all features identified by any method)
+        features_to_drop_union = list(set(chain(*features_to_drop_sets)))
+
+        # Remove the union of features to drop from the data
+        data = data.drop(columns=features_to_drop_union)
+
+        # Filter the original features to include only those that still exist in the data
+        final_features = [feature for feature in self.original_features if feature in data.columns]
+
         # Store the data in the global variable with the same feature order as the original data
-        # self.result_data = data[self.original_features]
+        self.result_data = data[final_features]
+
+        # Add the final summary about the intersection and union
+        removal_summary.append(
+            f'Intersection of identified features (all methods): {len(features_to_drop_intersection)} features: {", ".join(features_to_drop_intersection)}'
+        )
+        removal_summary.append(
+            f'Union of identified features (all methods): {len(features_to_drop_union)} features: {", ".join(features_to_drop_union)}'
+        )
+        removal_summary.append(
+            f'Removed {len(features_to_drop_union)} features identified by any method: {", ".join(features_to_drop_union)}'
+        )
+
         return {"removal_summary": removal_summary}

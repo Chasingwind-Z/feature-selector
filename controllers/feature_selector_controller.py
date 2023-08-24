@@ -9,6 +9,8 @@ from views.themes import LIGHT_THEME, DARK_THEME
 
 class FeatureSelectorController:
     def __init__(self):
+        self.current_page = None
+        self.page_size = None
         self.data = None
         self.result_data = None
         self.model = FeatureSelectorModel()
@@ -43,20 +45,45 @@ class FeatureSelectorController:
         self.view.status_bar.showMessage("New file created")
 
     def display_data_in_table(self, data, title="Untitled"):
-        data_table = QTableWidget(data.shape[0], data.shape[1])
+        # Create a data table widget
+        data_table = QTableWidget(0, data.shape[1])  # Set rows to 0 initially
         data_table.setHorizontalHeaderLabels(data.columns)
-        data_table.setContextMenuPolicy(Qt.CustomContextMenu)  # Set custom context menu policy
-        data_table.customContextMenuRequested.connect(
-            self.view.show_table_context_menu)  # Connect to the context menu slot
+        data_table.setContextMenuPolicy(Qt.CustomContextMenu)
+        data_table.customContextMenuRequested.connect(self.view.show_table_context_menu)
         data_table.horizontalHeader().setContextMenuPolicy(Qt.CustomContextMenu)
-        data_table.horizontalHeader().customContextMenuRequested.connect(
-            self.view.show_header_context_menu)  # Connect to the header context menu slot
+        data_table.horizontalHeader().customContextMenuRequested.connect(self.view.show_header_context_menu)
 
-        for row in range(data.shape[0]):
-            for col in range(data.shape[1]):
-                data_table.setItem(row, col, QTableWidgetItem(str(data.iloc[row, col])))
+        # Add table to data tables widget
         self.view.data_tables.addTab(data_table, title.split('/')[-1])
+
+        # Set the page size
+        self.page_size = 500
+        self.current_page = 0
+
+        # Load the first page of data
+        self.load_page(data, data_table)
+
+        # Connect to the vertical scrollbar's valueChanged signal
+        data_table.verticalScrollBar().valueChanged.connect(lambda value: self.on_scroll(value, data, data_table))
+
+        # Show the status message
         self.view.status_bar.showMessage(f"Loaded data from {title}")
+
+    def load_page(self, data, table):
+        start_row = self.current_page * self.page_size
+        end_row = (self.current_page + 1) * self.page_size
+
+        for row in range(start_row, min(end_row, data.shape[0])):
+            table.insertRow(row)  # Insert a new row at the end
+            for col in range(data.shape[1]):
+                table.setItem(row, col, QTableWidgetItem(str(data.iloc[row, col])))
+
+        self.current_page += 1
+
+    def on_scroll(self, value, data, table):
+        if value == table.verticalScrollBar().maximum():
+            # User has scrolled to the bottom, load the next page
+            self.load_page(data, table)
 
     def stop_execution(self):
         # 这里添加停止执行的代码
@@ -65,10 +92,15 @@ class FeatureSelectorController:
         self.view.hide_stop_button()
 
     def save_results(self):
-        file_name, _ = QFileDialog.getSaveFileName(self.view, "Save Results", "", "Text files (*.txt);;All files (*)")
+        options = QFileDialog.Options()
+        file_name, file_type = QFileDialog.getSaveFileName(self.view, "Save Results", "",
+                                                           "CSV files (*.csv);;Text files (*.txt);;All files (*)",
+                                                           options=options)
         if file_name:
-            with open(file_name, 'w') as f:
-                f.write(self.view.results_text.toPlainText())
+            if 'csv' in file_type:
+                self.model.result_data.to_csv(file_name, index=False)
+            else:
+                self.model.result_data.to_csv(file_name, sep='\t', index=False)
             self.view.status_bar.showMessage(f"Results saved to {file_name}")
 
     def save_file(self):
@@ -148,7 +180,7 @@ class FeatureSelectorController:
 
         # Perform feature selection in the model
         result_data = self.model.select_features(methods, target_column_name, keep_one_hot)
-
+        print(3)
         # 隐藏Stop按钮，显示Save Results按钮
         self.view.hide_stop_button()
         self.view.show_save_results_button()

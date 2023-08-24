@@ -210,6 +210,7 @@ class FeatureSelectorView(QMainWindow):
 
     @pyqtSlot(list, str)
     def display_method_result(self, to_drop, details):
+        print(1)
         # to_drop 是一个包含要删除的特征名称的列表
         # details 是一个字符串，描述了所选方法的具体细节
         try:
@@ -221,12 +222,15 @@ class FeatureSelectorView(QMainWindow):
         except Exception as e:
             print("Error in display_method_result:", e)
 
+    @pyqtSlot(dict)
     def display_final_results(self, removal_summary):
-        # removal_summary 是一个包含已删除特征的摘要信息的列表
+        # removal_summary 是一个字典，其中包含已删除特征的摘要信息的列表
+        summary_list = removal_summary.get("removal_summary", [])
 
         self.results_text.append("Final Removal Summary:")
-        for summary in removal_summary:
+        for summary in summary_list:
             self.results_text.append(summary)
+            self.results_text.append("\n")
 
         # 显示保存结果按钮
         self.save_results_button.setVisible(True)
