@@ -7,6 +7,8 @@ from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QCheckBox, QLabe
 class FeatureSelectionDialog(QDialog):
     def __init__(self):
         super().__init__()
+        self.all_methods_checkbox = None
+        self.one_hot_checkbox = None
         self.keep_one_hot_combo = None
         self.keep_one_hot = None
         self.selected_methods = None
@@ -18,6 +20,108 @@ class FeatureSelectionDialog(QDialog):
         self.setGeometry(200, 200, 900, 600)
 
         layout = QVBoxLayout()
+        layout.setSpacing(10)
+        layout.setContentsMargins(10, 10, 10, 10)
+
+        # "All methods" checkbox
+        all_methods_checkbox_layout = QHBoxLayout()
+        self.all_methods_checkbox = QCheckBox("Select All Methods")
+        all_methods_checkbox_layout.addWidget(self.all_methods_checkbox)
+        all_methods_checkbox_layout.addStretch(1)  # 添加弹性空间，使其右对齐
+        layout.addLayout(all_methods_checkbox_layout)
+        self.all_methods_checkbox.stateChanged.connect(self.on_all_methods_checkbox_changed)
+
+        # Scroll Area for methods selection
+        scroll_layout = QVBoxLayout()
+
+        # Method configurations
+        methods_config = [
+            ("Missing Values", QLineEdit("0.6"), "Threshold: 0 to 1", "missing_threshold"),
+            ("Single Unique Value", None, None, None),
+            ("Collinear Features", (QLineEdit("0.975"), QComboBox()), "Threshold: 0 to 1", "correlation_threshold"),
+            ("Zero Importance Features", None, "Settings for Zero Importance Features", None),
+            ("Low Importance Features", QLineEdit("0.99"), "Threshold: 0 to 1", "cumulative_importance")
+        ]
+
+        self.methods_checkboxes = {}
+
+        for method_name, parameter_widgets, range_text, param_name in methods_config:
+            group_box = QGroupBox(method_name)
+            group_box_layout = QVBoxLayout()
+            group_box_layout.setSpacing(10)
+
+            # Add checkbox for each method
+            checkbox = QCheckBox("Enable")
+            group_box_layout.addWidget(checkbox)
+            checkbox.stateChanged.connect(self.on_individual_method_checkbox_changed)
+
+            # Create a layout for each set of controls
+            hbox = QHBoxLayout()
+            hbox.setSpacing(10)
+
+            if method_name == "Collinear Features":
+                correlation_threshold_widget, one_hot_combobox = parameter_widgets
+                hbox.addWidget(QLabel(f"{param_name.capitalize()}:"))
+                hbox.addWidget(correlation_threshold_widget)
+                hbox.addWidget(QLabel("One Hot:"))
+                hbox.addWidget(one_hot_combobox)
+                if range_text:
+                    hbox.addWidget(QLabel(range_text))
+
+                self.methods_checkboxes[method_name] = (checkbox, (correlation_threshold_widget, one_hot_combobox))
+                one_hot_combobox.currentIndexChanged.connect(self.adjust_keep_one_hot_state)
+
+            elif method_name == "Zero Importance Features":
+                task_combobox = QComboBox()
+                task_combobox.addItems(['classification', 'regression', 'quantile'])
+                eval_metric_combobox = QComboBox()
+                eval_metric_combobox.addItems(['auc', 'l2'])
+                n_iterations_line_edit = QLineEdit("10")
+                early_stopping_checkbox = QCheckBox("Early Stopping")
+                early_stopping_checkbox.setChecked(True)
+                importance_type_combobox = QComboBox()
+                importance_type_combobox.addItems(['split', 'permutation'])
+                n_permutations_line_edit = QLineEdit("10")
+
+                # Arrange widgets in the layout
+                hbox.addWidget(QLabel("Task:"))
+                hbox.addWidget(task_combobox)
+                hbox.addWidget(QLabel("Eval Metric:"))
+                hbox.addWidget(eval_metric_combobox)
+                hbox.addWidget(QLabel("Iterations:"))
+                hbox.addWidget(n_iterations_line_edit)
+                hbox.addWidget(early_stopping_checkbox)
+                hbox.addWidget(QLabel("Importance Type:"))
+                hbox.addWidget(importance_type_combobox)
+                hbox.addWidget(QLabel("Permutations:"))
+                hbox.addWidget(n_permutations_line_edit)
+
+                checkbox.stateChanged.connect(self.on_zero_importance_checkbox_changed)
+                self.methods_checkboxes[method_name] = (
+                    checkbox, (task_combobox, eval_metric_combobox, n_iterations_line_edit, early_stopping_checkbox,
+                               importance_type_combobox, n_permutations_line_edit))
+
+            else:
+                if parameter_widgets and param_name:
+                    hbox.addWidget(QLabel(f"{param_name.capitalize()}:"))
+                    hbox.addWidget(parameter_widgets)
+                    parameter_widgets.setFixedWidth(100)
+                    if range_text:
+                        hbox.addWidget(QLabel(range_text))
+
+                self.methods_checkboxes[method_name] = (checkbox, parameter_widgets)
+
+            hbox.addStretch(1)  # Add stretch to push widgets to the left
+            group_box_layout.addLayout(hbox)
+            group_box.setLayout(group_box_layout)
+            scroll_layout.addWidget(group_box)
+
+        scroll_widget = QWidget()
+        scroll_widget.setLayout(scroll_layout)
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setWidget(scroll_widget)
+        layout.addWidget(scroll_area)
 
         # Keep One Hot Encoding option
         keep_one_hot_layout = QHBoxLayout()
@@ -29,75 +133,8 @@ class FeatureSelectionDialog(QDialog):
         keep_one_hot_layout.addWidget(self.keep_one_hot_combo)
         layout.addLayout(keep_one_hot_layout)
 
-        # Scroll Area for methods selection
-        scroll_layout = QVBoxLayout()
-
-        # Method configurations
-        methods_config = [
-            ("Missing Values", QLineEdit("0.6"), "Threshold: 0 to 1", "missing_threshold"),
-            ("Single Unique Value", None, None, None),
-            ("Collinear Features", QLineEdit("0.975"), "Threshold: 0 to 1", "correlation_threshold"),
-            ("Zero Importance Features", None, "Settings for Zero Importance Features", None),
-            ("Low Importance Features", QLineEdit("0.99"), "Threshold: 0 to 1", "cumulative_importance")
-        ]
-
-        self.methods_checkboxes = {}
-
-        for method_name, parameter_widget, range_text, param_name in methods_config:
-            group_box = QGroupBox(method_name)
-            group_box_layout = QVBoxLayout()
-
-            # Add checkbox for each method
-            checkbox = QCheckBox("Enable")
-            group_box_layout.addWidget(checkbox)
-
-            if parameter_widget:
-                parameter_widget.setMaximumWidth(100)
-
-            if method_name == "Zero Importance Features":
-                hbox = QHBoxLayout()
-                task_combobox = QComboBox()
-                task_combobox.addItems(['classification', 'regression'])
-                eval_metric_combobox = QComboBox()
-                eval_metric_combobox.addItems(['auc', 'l2'])
-                n_iterations_line_edit = QLineEdit("10")
-                early_stopping_checkbox = QCheckBox("Early Stopping")
-                early_stopping_checkbox.setChecked(True)
-                hbox.addWidget(QLabel("Task:"))
-                hbox.addWidget(task_combobox)
-                hbox.addWidget(QLabel("Eval Metric:"))
-                hbox.addWidget(eval_metric_combobox)
-                hbox.addWidget(QLabel("Iterations:"))
-                hbox.addWidget(n_iterations_line_edit)
-                hbox.addWidget(early_stopping_checkbox)
-                group_box_layout.addLayout(hbox)
-                # Connect to the special method for zero importance checkbox
-                checkbox.stateChanged.connect(self.on_zero_importance_checkbox_changed)
-                self.methods_checkboxes[method_name] = (
-                    checkbox, (task_combobox, eval_metric_combobox, n_iterations_line_edit, early_stopping_checkbox))
-            else:
-                if parameter_widget and param_name:
-                    hbox = QHBoxLayout()
-                    hbox.addWidget(QLabel(f"{param_name.capitalize()}:"))
-                    hbox.addWidget(parameter_widget)
-                    if range_text:
-                        hbox.addWidget(QLabel(range_text))
-                    group_box_layout.addLayout(hbox)
-                self.methods_checkboxes[method_name] = (checkbox, parameter_widget)
-
-            group_box.setLayout(group_box_layout)
-            scroll_layout.addWidget(group_box)
-
-        # 初始化时禁用 "Low Importance Features" 的复选框
-        low_importance_checkbox = self.methods_checkboxes["Low Importance Features"][0]
-        low_importance_checkbox.setEnabled(False)
-
-        scroll_widget = QWidget()
-        scroll_widget.setLayout(scroll_layout)
-        scroll_area = QScrollArea()
-        scroll_area.setWidgetResizable(True)
-        scroll_area.setWidget(scroll_widget)
-        layout.addWidget(scroll_area)
+        # Adjust keep_one_hot_combo based on initial checkbox states
+        self.adjust_keep_one_hot_state()
 
         # Buttons
         btn_layout = QHBoxLayout()
@@ -111,25 +148,83 @@ class FeatureSelectionDialog(QDialog):
 
         self.setLayout(layout)
 
-    def on_zero_importance_checkbox_changed(self, state):
-        try:
-            # 获取 "Low Importance Features" 的复选框
-            low_importance_checkbox = self.methods_checkboxes["Low Importance Features"][0]
+        # Initialize all_methods_checkbox state
+        self.on_individual_method_checkbox_changed()
 
-            # 如果 "Zero Importance Features" 复选框被选中，则启用 "Low Importance Features" 复选框
-            if state == Qt.Checked:
-                low_importance_checkbox.setEnabled(True)
+    def adjust_keep_one_hot_state(self):
+        try:
+            # 获取各个方法的复选框状态
+            missing_checkbox, _ = self.methods_checkboxes["Missing Values"]
+            single_unique_checkbox, _ = self.methods_checkboxes["Single Unique Value"]
+            collinear_checkbox, collinear_widgets = self.methods_checkboxes["Collinear Features"]
+            zero_importance_checkbox, _ = self.methods_checkboxes["Zero Importance Features"]
+            low_importance_checkbox, _ = self.methods_checkboxes["Low Importance Features"]
+
+            # 获取 "Collinear Features" 方法的 one_hot 下拉框状态
+            _, one_hot_combobox = collinear_widgets
+            one_hot_state = one_hot_combobox.currentText() == 'True'
+
+            # 情况一：只选择了前两种方法
+            if (
+                    missing_checkbox.isChecked() or single_unique_checkbox.isChecked()) and not collinear_checkbox.isChecked():
+                self.keep_one_hot_combo.setCurrentText('False')
+                self.keep_one_hot_combo.setEnabled(False)
+
+            # 情况二：只选择了前三种方法且必定选择了第三种方法
+            elif collinear_checkbox.isChecked() and not zero_importance_checkbox.isChecked() and not low_importance_checkbox.isChecked():
+                self.keep_one_hot_combo.setCurrentText('True' if one_hot_state else 'False')
+                self.keep_one_hot_combo.setEnabled(False)
+
+            # 情况三：选择了第四五种方法或者第三种方法的One Hot为True
+            elif (
+                    one_hot_state and collinear_checkbox.isChecked()) or zero_importance_checkbox.isChecked() or low_importance_checkbox.isChecked():
+                self.keep_one_hot_combo.setCurrentText('True')
+                self.keep_one_hot_combo.setEnabled(False)
+
+            # 其他情况
             else:
-                # 如果 "Zero Importance Features" 复选框未选中，则取消选中并禁用 "Low Importance Features" 复选框
-                low_importance_checkbox.setChecked(False)
-                low_importance_checkbox.setEnabled(False)
+                self.keep_one_hot_combo.setEnabled(True)
+
         except Exception as e:
-            print("An error occurred:", e)
+            print("Error in adjust_keep_one_hot_state:", e)
+
+    def on_all_methods_checkbox_changed(self, state):
+        # 如果 "All methods" 复选框被选中，则选中所有其他复选框
+        if state == Qt.Checked:
+            for method_name, (checkbox, _) in self.methods_checkboxes.items():
+                checkbox.setChecked(True)
+        else:
+            # 如果 "All methods" 复选框未选中，则取消选中所有其他复选框
+            for method_name, (checkbox, _) in self.methods_checkboxes.items():
+                checkbox.setChecked(False)
+        self.adjust_keep_one_hot_state()
+
+    def on_individual_method_checkbox_changed(self):
+        all_selected = all([checkbox.isChecked() for _, (checkbox, _) in self.methods_checkboxes.items()])
+        self.all_methods_checkbox.setChecked(all_selected)
+        self.adjust_keep_one_hot_state()
+
+    def on_zero_importance_checkbox_changed(self, state):
+        low_importance_checkbox, _ = self.methods_checkboxes["Low Importance Features"]
+
+        # 如果 "Zero Importance Features" 复选框被选中，则启用 "Low Importance Features" 复选框
+        if state == Qt.Checked:
+            low_importance_checkbox.setEnabled(True)
+        else:
+            # 如果 "Zero Importance Features" 复选框未选中，则取消选中并禁用 "Low Importance Features" 复选框
+            low_importance_checkbox.setChecked(False)
+            low_importance_checkbox.setEnabled(False)
+        self.adjust_keep_one_hot_state()
 
     def apply_selection(self):
         try:
             selected_methods = {}
             validation_errors = []
+
+            # If "All methods" checkbox is checked, mark all individual method checkboxes as checked
+            if self.all_methods_checkbox.isChecked():
+                for _, (checkbox, _) in self.methods_checkboxes.items():
+                    checkbox.setChecked(True)
 
             # Missing Values
             checkbox, threshold_widget = self.methods_checkboxes["Missing Values"]
@@ -147,24 +242,31 @@ class FeatureSelectionDialog(QDialog):
                 selected_methods["Single Unique Value"] = {}
 
             # Collinear Features
-            checkbox, threshold_widget = self.methods_checkboxes["Collinear Features"]
+            checkbox, collinear_widgets = self.methods_checkboxes["Collinear Features"]
             if checkbox.isChecked():
+                threshold_widget, one_hot_combobox = collinear_widgets
                 threshold = threshold_widget.text()
+                one_hot = one_hot_combobox.currentText() == 'True'
                 error_message = self.validate_parameter("Collinear Features", threshold)
                 if error_message:
                     validation_errors.append(error_message)
                 else:
-                    selected_methods["Collinear Features"] = {"correlation_threshold": float(threshold)}
+                    selected_methods["Collinear Features"] = {
+                        "correlation_threshold": float(threshold),
+                        "one_hot": one_hot
+                    }
 
             # Zero Importance Features
             checkbox, zero_importance_widgets = self.methods_checkboxes["Zero Importance Features"]
             if checkbox.isChecked():
-                task_combobox, eval_metric_combobox, n_iterations_line_edit, early_stopping_checkbox = zero_importance_widgets
+                task_combobox, eval_metric_combobox, n_iterations_line_edit, early_stopping_checkbox, importance_type_combobox, n_permutations_line_edit = zero_importance_widgets
                 task = task_combobox.currentText()
                 eval_metric = eval_metric_combobox.currentText()
                 n_iterations = n_iterations_line_edit.text()
                 early_stopping = early_stopping_checkbox.isChecked()
-                param_values = (task, eval_metric, n_iterations, early_stopping)
+                importance_type = importance_type_combobox.currentText()
+                n_permutations = n_permutations_line_edit.text()
+                param_values = (task, eval_metric, n_iterations, early_stopping, importance_type, n_permutations)
 
                 error_message = self.validate_parameter("Zero Importance Features", param_values)
                 if error_message:
@@ -174,7 +276,9 @@ class FeatureSelectionDialog(QDialog):
                         "task": task,
                         "eval_metric": eval_metric,
                         "n_iterations": int(n_iterations),
-                        "early_stopping": early_stopping
+                        "early_stopping": early_stopping,
+                        "importance_type": importance_type,
+                        "n_permutations": int(n_permutations)
                     }
 
             # Low Importance Features
@@ -186,7 +290,7 @@ class FeatureSelectionDialog(QDialog):
                     validation_errors.append(error_message)
                 else:
                     selected_methods["Low Importance Features"] = {
-                        "cumulative_importance_threshold": float(cumulative_importance_threshold)
+                        "cumulative_importance": float(cumulative_importance_threshold)
                     }
 
             # If there are validation errors, show them and do not proceed
@@ -230,8 +334,8 @@ class FeatureSelectionDialog(QDialog):
                 return "Collinear Features threshold must be a number."
 
         elif method_name == "Zero Importance Features":
-            task, eval_metric, n_iterations, early_stopping = param_values
-            if task not in ["classification", "regression"]:
+            task, eval_metric, n_iterations, early_stopping, importance_type, n_permutations = param_values
+            if task not in ["classification", "regression", "quantile"]:  # Added 'quantile'
                 return "Invalid task value for Zero Importance Features."
             if eval_metric not in ["auc", "l2"]:
                 return "Invalid eval_metric value for Zero Importance Features."
@@ -241,6 +345,14 @@ class FeatureSelectionDialog(QDialog):
                     return "n_iterations must be greater than 0 for Zero Importance Features."
             except ValueError:
                 return "n_iterations must be an integer for Zero Importance Features."
+            if importance_type not in ['split', 'permutation']:
+                return "Invalid importance_type value for Zero Importance Features."
+            try:
+                n_permutations = int(n_permutations)
+                if n_permutations <= 0:
+                    return "n_permutations must be greater than 0 for Zero Importance Features."
+            except ValueError:
+                return "n_permutations must be an integer for Zero Importance Features."
             if not isinstance(early_stopping, bool):
                 return "Invalid early_stopping value for Zero Importance Features."
             return None

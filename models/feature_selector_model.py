@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 from PyQt5.QtCore import pyqtSignal, QObject
 from sklearn.exceptions import NotFittedError
+from sklearn.inspection import permutation_importance
 from sklearn.model_selection import train_test_split
 import lightgbm as lgb
 import gc
@@ -16,6 +17,12 @@ class FeatureSelectorModel(QObject):
 
     def __init__(self):
         super().__init__()
+
+        self.labels = None
+        self.one_hot_correlated = False
+        self.data_all = None
+        self.one_hot_features = None
+        self.base_features = None
         self.cumulative_importance = None
         self.correlation_threshold = None
         self.corr_matrix = None
@@ -37,42 +44,34 @@ class FeatureSelectorModel(QObject):
 
     def load_data(self, data):
         self.data = data
-        self.original_features = data.columns.tolist()  # Record the original features
+        self.base_features = list(data.columns)
 
     def select_features(self, selected_methods_and_params, target_column_name, keep_one_hot=True):
-        labels = self.data[target_column_name]  # Extracting the target column as labels
-        train = self.data.drop(columns=target_column_name)
+        self.labels = self.data[target_column_name]  # Extracting the target column as labels
+        self.data = self.data.drop(columns=[target_column_name])  # Dropping the target column from the data
         selected_removal_methods = []
+        all_methods = ['Missing Values', 'Single Unique Value', 'Collinear Features', 'Zero Importance Features',
+                       'Low Importance Features']
 
         for method, params in selected_methods_and_params.items():
             # Match the method name with the appropriate function call
             if method == 'Missing Values':
                 selected_removal_methods.append('missing')
-                to_drop, details = self.identify_missing(self.data, params['missing_threshold'])
-                print(to_drop)
-                print(details)
-                # print(self.record_missing)
+                to_drop, details = self.identify_missing(params['missing_threshold'])
             elif method == 'Single Unique Value':
                 selected_removal_methods.append('single_unique')
-                to_drop, details = self.identify_single_unique(self.data)
-                print(to_drop)
-                print(details)
+                to_drop, details = self.identify_single_unique()
             elif method == 'Collinear Features':
                 selected_removal_methods.append('collinear')
-                to_drop, details = self.identify_collinear(self.data, params['correlation_threshold'])
-                print(to_drop)
-                print(details)
+                to_drop, details = self.identify_collinear(params['correlation_threshold'], params['one_hot'])
             elif method == 'Zero Importance Features':
                 selected_removal_methods.append('zero_importance')
-                params['labels'] = labels  # Adding labels to the params
-                params['features'] = train
+                print(3)
                 print(params)
                 to_drop, details = self.identify_zero_importance(**params)  # Using all params here
-                print(params)
-                print(to_drop)
-                print(details)
             elif method == 'Low Importance Features':
                 selected_removal_methods.append('low_importance')
+                print(params)
                 to_drop, details = self.identify_low_importance(params['cumulative_importance'])
             else:
                 continue
@@ -80,29 +79,35 @@ class FeatureSelectorModel(QObject):
             # Emit signal to update the GUI with the results of the individual method
             self.method_result_signal.emit(to_drop, details)
 
+        # If all methods are selected
+        if set(all_methods) == set(selected_methods_and_params.keys()):
+            selected_removal_methods = 'all'
+
         print(selected_removal_methods)
         # Finally, remove the features based on the results of all methods
         removal_summary = self.remove_features(selected_removal_methods, keep_one_hot)
-        print(4)
         # Emit signal to update the GUI with the final results
         self.final_results_signal.emit(removal_summary)
-        print(5)
         # Return the result data with the same feature order as the original data
         return self.result_data
 
-    def identify_missing(self, data, missing_threshold):
+    def identify_missing(self, missing_threshold):
         """Find the features with a fraction of missing values above `missing_threshold`"""
 
         self.missing_threshold = missing_threshold
 
         # Calculate the fraction of missing in each column
-        missing_series = data.isnull().sum() / data.shape[0]
-
+        missing_series = self.data.isnull().sum() / self.data.shape[0]
         self.missing_stats = pd.DataFrame(missing_series).rename(columns={'index': 'feature', 0: 'missing_fraction'})
 
+        # Sort with highest number of missing values on top
+        self.missing_stats = self.missing_stats.sort_values('missing_fraction', ascending=False)
+
         # Find the columns with a missing percentage above the threshold
-        record_missing = pd.DataFrame(missing_series[missing_series > missing_threshold]).reset_index().rename(
-            columns={'index': 'feature', 0: 'missing_fraction'})
+        record_missing = pd.DataFrame(missing_series[missing_series > missing_threshold]).reset_index().rename(columns=
+        {
+            'index': 'feature',
+            0: 'missing_fraction'})
 
         to_drop = list(record_missing['feature'])
 
@@ -114,13 +119,14 @@ class FeatureSelectorModel(QObject):
 
         return to_drop, details
 
-    def identify_single_unique(self, data):
+    def identify_single_unique(self):
         """Identifies features with only a single unique value. NaNs do not count as a unique value."""
 
         # Calculate the unique counts in each column
-        unique_counts = data.nunique()
+        unique_counts = self.data.nunique()
 
         self.unique_stats = pd.DataFrame(unique_counts).rename(columns={'index': 'feature', 0: 'nunique'})
+        self.unique_stats = self.unique_stats.sort_values('nunique', ascending=True)
 
         # Find the columns with only one unique count
         record_single_unique = pd.DataFrame(unique_counts[unique_counts == 1]).reset_index().rename(
@@ -135,30 +141,36 @@ class FeatureSelectorModel(QObject):
 
         return to_drop, details
 
-    def identify_collinear(self, data, correlation_threshold):
+    def identify_collinear(self, correlation_threshold, one_hot=False):
         """
         Finds collinear features based on the correlation coefficient between features.
-        For each pair of features with a correlation coefficient greather than `correlation_threshold`,
+        For each pair of features with a correlation coefficient greater than `correlation_threshold`,
         only one of the pair is identified for removal.
-
-        Using code adapted from: https://gist.github.com/Swarchal/e29a3a1113403710b6850590641f046c
 
         Parameters
         --------
-
-        data : dataframe
-            Data observations in the rows and features in the columns
-
         correlation_threshold : float between 0 and 1
-            Value of the Pearson correlation cofficient for identifying correlation features
+            Value of the Pearson correlation coefficient for identifying correlation features
 
+        one_hot : boolean, default = False
+            Whether to one-hot encode the features before calculating the correlation coefficients
         """
 
         self.correlation_threshold = correlation_threshold
+        self.one_hot_correlated = one_hot
 
         # Calculate the correlations between every column
-        # 计算每一列之间的相关性，只包括数值型列
-        corr_matrix = data.corr(numeric_only=True)
+        if one_hot:
+            # One hot encoding
+            features = pd.get_dummies(self.data)
+            self.one_hot_features = [column for column in features.columns if column not in self.base_features]
+
+            # Add one hot encoded data to original data
+            self.data_all = pd.concat([features[self.one_hot_features], self.data], axis=1)
+
+            corr_matrix = pd.get_dummies(features).corr(numeric_only=True)
+        else:
+            corr_matrix = self.data.corr(numeric_only=True)
 
         self.corr_matrix = corr_matrix
 
@@ -166,7 +178,6 @@ class FeatureSelectorModel(QObject):
         upper = corr_matrix.where(np.triu(np.ones(corr_matrix.shape), k=1).astype(np.bool))
 
         # Select the features with correlations above the threshold
-        # Need to use the absolute value
         to_drop = [column for column in upper.columns if any(upper[column].abs() > correlation_threshold)]
 
         # Dataframe to hold correlated pairs
@@ -192,133 +203,136 @@ class FeatureSelectorModel(QObject):
         self.record_collinear = record_collinear
         self.removal_ops['collinear'] = to_drop
 
-        details = '%d features with a correlation greater than %0.2f.\n' % (
+        details = '%d features with a correlation magnitude greater than %0.2f.\n' % (
             len(self.removal_ops['collinear']), self.correlation_threshold)
 
         return to_drop, details
 
-    def identify_zero_importance(self, features, labels, eval_metric, task='classification', n_iterations=10,
-                                 early_stopping=True):
+    def identify_zero_importance(self, eval_metric=None, task='classification',
+                                 n_iterations=10, early_stopping=True,
+                                 importance_type='split', n_permutations=10):
         """
-
         Identify the features with zero importance according to a gradient boosting machine.
-        The gbm can be trained with early stopping using a validation set to prevent overfitting.
+        The GBM can be trained with early stopping using a validation set to prevent overfitting.
         The feature importances are averaged over n_iterations to reduce variance.
-
-        Uses the LightGBM implementation (http://lightgbm.readthedocs.io/en/latest/index.html)
-
-        Parameters
-        --------
-        features : dataframe
-            Data for training the model with observations in the rows
-            and features in the columns
-
-        labels : array, shape = (1, )
-            Array of labels for training the model. These can be either binary
-            (if task is 'classification') or continuous (if task is 'regression')
-
-        eval_metric : string
-            Evaluation metric to use for the gradient boosting machine
-
-        task : string, default = 'classification'
-            The machine learning task, either 'classification' or 'regression'
-
-        n_iterations : int, default = 10
-            Number of iterations to train the gradient boosting machine
-
-        early_stopping : boolean, default = True
-            Whether or not to use early stopping with a validation set when training
-
-
-        Notes
-        --------
-
-        - Features are one-hot encoded to handle the categorical variables before training.
-        - The gbm is not optimized for any particular task and might need some hyperparameter tuning
-        - Feature importances, including zero importance features, can change across runs
-
+        Uses the LightGBM implementation.
         """
-        print("o")
+
+        # Check for early stopping and eval metric
+        if early_stopping and eval_metric is None:
+            raise ValueError("""eval metric must be provided with early stopping. Examples include "auc" for classification,
+                             "l2" for regression, or "quantile" for quantile""")
         # One hot encoding
-        features = pd.get_dummies(features)
-        print(9)
+        features = pd.get_dummies(self.data)
+        self.one_hot_features = [column for column in features.columns if column not in self.base_features]
+        # Add one hot encoded data to original data
+        self.data_all = pd.concat([features[self.one_hot_features], self.data], axis=1)
         # Extract feature names
         feature_names = list(features.columns)
-        print(2)
         # Convert to np array
         features = np.array(features)
-        print(5)
-        labels = np.array(labels).reshape((-1,))
-        print(3)
+        labels = np.array(self.labels).reshape((-1,))
         # Empty array for feature importances
         feature_importance_values = np.zeros(len(feature_names))
-        print(4)
         print('Training Gradient Boosting Model\n')
 
         # Iterate through each fold
-        for _ in range(n_iterations):
-            if task == 'classification':
-                print("c")
-                model = lgb.LGBMClassifier(n_estimators=1000, learning_rate=0.05, verbose=-1)
-                print("d")
-            elif task == 'regression':
-                model = lgb.LGBMRegressor(n_estimators=1000, learning_rate=0.05, verbose=-1)
-            else:
-                raise ValueError('Task must be either "classification" or "regression"')
+        lgb_params = {
+            'n_jobs': -1,
+            'n_estimators': 2000,
+            'learning_rate': 0.05,
+            'importance_type': importance_type
+        }
+        for i in range(n_iterations):
 
-            # If training using early stopping, need a validation set
-            if early_stopping:
-                print("c'")
-                train_features, valid_features, train_labels, valid_labels = train_test_split(features, labels,
-                                                                                              test_size=0.15)
-                print("d'")
-                # Train the model with early stopping
-                model.fit(train_features, train_labels, eval_metric=eval_metric,
-                          eval_set=[(valid_features, valid_labels)],
-                          early_stopping_rounds=100, verbose=-1)
-                print("e'")
-                # Clean up memory
-                gc.enable()
-                print("f'")
-                del train_features, train_labels, valid_features, valid_labels
-                print("g'")
-                gc.collect()
+            if task == 'classification':
+                model = lgb.LGBMClassifier(**lgb_params)
+            elif task == 'regression':
+                model = lgb.LGBMRegressor(**lgb_params)
+
+            elif task == 'quantile':
+                # try different alphas
+                alpha = 0.01 + 0.99 / n_iterations * i
+                model = lgb.LGBMRegressor(objective='quantile', alpha=alpha, **lgb_params)
+
             else:
-                print("e")
+                raise ValueError('Task must be either "classification", "regression", or "quantile"')
+
+            # If training using early stopping or using permutations need a validation set
+            if early_stopping or importance_type == 'permutation':
+                if task == 'classification':
+                    train_features, valid_features, train_labels, valid_labels = train_test_split(features, labels,
+                                                                                                  test_size=0.2,
+                                                                                                  stratify=labels)
+                elif task in ['regression', 'quantile']:
+                    train_features, valid_features, train_labels, valid_labels = train_test_split(features, labels,
+                                                                                                  test_size=0.2)
+
+                if early_stopping:
+                    # Train the model with early stopping
+                    try:
+                        # 定义回调函数列表
+                        callbacks = [
+                            lgb.callback.early_stopping(stopping_rounds=100, verbose=False),
+                        ]
+
+                        # 使用回调函数列表调用 fit 方法
+                        model.fit(train_features, train_labels, eval_metric=eval_metric,
+                                  eval_set=[(valid_features, valid_labels)],
+                                  callbacks=callbacks)
+                    except Exception as e:
+                        print("An error occurred:", e)
+                else:
+                    model.fit(train_features, train_labels)
+
+            else:
                 model.fit(features, labels)
 
             # Record the feature importances
-            feature_importance_values += model.feature_importances_ / n_iterations
-        print("f")
+            if importance_type == 'permutation':
+                # calculate permutation importance
+                r = permutation_importance(model, valid_features, valid_labels,
+                                           n_repeats=n_permutations, n_jobs=-1)
+                feature_importance_values += r.importances_mean / n_iterations
+
+            else:
+                feature_importance_values += model.feature_importances_ / n_iterations
+
+                # Clean up memory
+            gc.enable()
+            del train_features, train_labels, valid_features, valid_labels
+            gc.collect()
+            # Record the feature importances
+
         feature_importances = pd.DataFrame({'feature': feature_names, 'importance': feature_importance_values})
-        print("g")
-        # Sort features according to importance
-        feature_importances = feature_importances.sort_values('importance', ascending=False).reset_index(drop=True)
-        print("h")
+
+        # Sort based on importance
+        feature_importances = feature_importances.sort_values(by='importance', ascending=False).reset_index(drop=True)
+
         # Normalize the feature importances to add up to one
-        feature_importances['normalized_importance'] = feature_importances['importance'] / feature_importances[
-            'importance'].sum()
+        postive_features_sum = (feature_importances['importance'] * (feature_importances['importance'] >= 0)).sum()
+        feature_importances['normalized_importance'] = feature_importances['importance'] / postive_features_sum
         feature_importances['cumulative_importance'] = np.cumsum(feature_importances['normalized_importance'])
-        print("i")
-        # Extract the features with zero importance
-        record_zero_importance = feature_importances[feature_importances['importance'] == 0.0]
-        print("j")
+
+        # Extract the features with zero or negative importance
+        record_zero_importance = feature_importances[feature_importances['importance'] <= 0.0]
+
         to_drop = list(record_zero_importance['feature'])
-        print("k")
+
         self.feature_importances = feature_importances
         self.record_zero_importance = record_zero_importance
         self.removal_ops['zero_importance'] = to_drop
 
-        details = '\n%d features with zero importance.\n' % len(self.removal_ops['zero_importance'])
+        details = '\n%d features with zero or negative importance after one-hot encoding.\n' % len(
+            self.removal_ops['zero_importance'])
+        print(details)
 
         return to_drop, details
 
     def identify_low_importance(self, cumulative_importance):
         """
-        Finds the lowest importance features not needed to account for `cumulative_importance`
-        of the feature importance from the gradient boosting machine. As an example, if cumulative
-        importance is set to 0.95, this will retain only the most important features needed to
-        reach 95% of the total feature importance. The identified features are those not needed.
+        Finds the lowest importance features not needed to account for `cumulative_importance` fraction
+        of the total feature importance from the gradient boosting machine.
 
         Parameters
         --------
@@ -326,29 +340,26 @@ class FeatureSelectorModel(QObject):
             The fraction of cumulative importance to account for
 
         """
-
         self.cumulative_importance = cumulative_importance
-
         # The feature importances need to be calculated before running
         if self.feature_importances is None:
-            raise NotFittedError(
-                'Feature importances have not yet been determined. Call the `identify_zero_importance` method` first.')
-
+            raise NotImplementedError("""Feature importances have not yet been determined. 
+                                         Call the `identify_zero_importance` method first.""")
         # Make sure most important features are on top
         self.feature_importances = self.feature_importances.sort_values('cumulative_importance')
-
         # Identify the features not needed to reach the cumulative_importance
         record_low_importance = self.feature_importances[
             self.feature_importances['cumulative_importance'] > cumulative_importance]
-
         to_drop = list(record_low_importance['feature'])
-
         self.record_low_importance = record_low_importance
         self.removal_ops['low_importance'] = to_drop
-
-        details = '%d features that do not contribute to cumulative importance of %0.2f.\n' % (
-            len(self.removal_ops['low_importance']), self.cumulative_importance)
-
+        print('%d features required for cumulative importance of %0.2f after one hot encoding.' % (
+            len(self.feature_importances) -
+            len(self.record_low_importance), self.cumulative_importance))
+        details = '%d features do not contribute to cumulative importance of %0.2f.\n' % (
+            len(self.removal_ops['low_importance']),
+            self.cumulative_importance)
+        print(details)
         return to_drop, details
 
     def remove_features(self, selected_methods, keep_one_hot=True):
@@ -357,8 +368,8 @@ class FeatureSelectorModel(QObject):
 
         Parameters
         --------
-            selected_methods : list of strings
-                The removal method(s) to use.
+            selected_methods : list of strings or 'all'
+                The removal method(s) to use. If 'all', any methods that have been run will be used.
                 Available methods:
                     'missing': remove missing features
                     'single_unique': remove features with a single unique value
@@ -375,50 +386,47 @@ class FeatureSelectorModel(QObject):
                 A dictionary containing the information about the removed features for each method.
         """
 
-        # If one-hot encoding is required, perform the encoding
-        if keep_one_hot:
-            data = pd.get_dummies(self.data)
+        features_to_drop = []
+
+        if selected_methods == 'all':
+            # Need to use one-hot encoded data
+            data = self.data_all
+
+            # Get all features to drop from all methods
+            features_to_drop = set(list(chain(*list(self.removal_ops.values()))))
+
         else:
-            data = self.data.copy()
+            # Check if we need to use one-hot encoded data
+            if 'zero_importance' in selected_methods or 'low_importance' in selected_methods or self.one_hot_correlated:
+                data = self.data_all
+            else:
+                data = self.data
 
-        features_to_drop_sets = []  # To hold the sets of features to drop for each method
-        removal_summary = []  # To hold the summary details
+            # Iterate through the selected methods to collect features to drop
+            for method in selected_methods:
+                features_to_drop.extend(self.removal_ops[method])
 
-        # Iterate through the selected methods
-        for method in selected_methods:
-            # Get the features to drop for this method
-            removed_features = self.removal_ops[method]
-            # Append to the list of sets
-            features_to_drop_sets.append(set(removed_features))
-            # Append summary details
-            # removal_summary.append(
-            #     f'Identified {len(removed_features)} features using {method} method: {", ".join(removed_features)}'
-            # )
+            # Convert to set for unique values
+            features_to_drop = set(features_to_drop)
 
-        # Find the intersection (common features identified by all methods)
-        features_to_drop_intersection = list(set.intersection(*features_to_drop_sets))
+        if not keep_one_hot:
+            if self.one_hot_features is None:
+                print('Data has not been one-hot encoded')
+            else:
+                features_to_drop = features_to_drop | set(self.one_hot_features)
 
-        # Find the union (all features identified by any method)
-        features_to_drop_union = list(set(chain(*features_to_drop_sets)))
+        # Remove the features from the data
+        data = data.drop(columns=list(features_to_drop))
 
-        # Remove the union of features to drop from the data
-        data = data.drop(columns=features_to_drop_union)
+        # Removal summary
+        removal_summary = []
 
-        # Filter the original features to include only those that still exist in the data
-        final_features = [feature for feature in self.original_features if feature in data.columns]
-
-        # Store the data in the global variable with the same feature order as the original data
-        self.result_data = data[final_features]
-
-        # Add the final summary about the intersection and union
-        removal_summary.append(
-            f'Intersection of identified features (all methods): {len(features_to_drop_intersection)} features: {", ".join(features_to_drop_intersection)}'
-        )
-        removal_summary.append(
-            f'Union of identified features (all methods): {len(features_to_drop_union)} features: {", ".join(features_to_drop_union)}'
-        )
-        removal_summary.append(
-            f'Removed {len(features_to_drop_union)} features identified by any method: {", ".join(features_to_drop_union)}'
-        )
+        if not keep_one_hot:
+            removal_summary.append(
+                f'Removed {len(features_to_drop)} features including one-hot features: {", ".join(features_to_drop)}')
+        else:
+            removal_summary.append(f'Removed {len(features_to_drop)} features: {", ".join(features_to_drop)}')
 
         return {"removal_summary": removal_summary}
+
+

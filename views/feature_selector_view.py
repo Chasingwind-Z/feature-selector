@@ -210,7 +210,6 @@ class FeatureSelectorView(QMainWindow):
 
     @pyqtSlot(list, str)
     def display_method_result(self, to_drop, details):
-        print(1)
         # to_drop 是一个包含要删除的特征名称的列表
         # details 是一个字符串，描述了所选方法的具体细节
         try:

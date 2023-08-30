@@ -177,7 +177,7 @@ class FeatureSelectorController:
         # Connect signals to slots for updating the view
         self.model.method_result_signal.connect(self.view.display_method_result)
         self.model.final_results_signal.connect(self.view.display_final_results)
-
+        print(2)
         # Perform feature selection in the model
         result_data = self.model.select_features(methods, target_column_name, keep_one_hot)
         print(3)
