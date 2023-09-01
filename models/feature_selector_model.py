@@ -66,12 +66,9 @@ class FeatureSelectorModel(QObject):
                 to_drop, details = self.identify_collinear(params['correlation_threshold'], params['one_hot'])
             elif method == 'Zero Importance Features':
                 selected_removal_methods.append('zero_importance')
-                print(3)
-                print(params)
                 to_drop, details = self.identify_zero_importance(**params)  # Using all params here
             elif method == 'Low Importance Features':
                 selected_removal_methods.append('low_importance')
-                print(params)
                 to_drop, details = self.identify_low_importance(params['cumulative_importance'])
             else:
                 continue
@@ -83,7 +80,6 @@ class FeatureSelectorModel(QObject):
         if set(all_methods) == set(selected_methods_and_params.keys()):
             selected_removal_methods = 'all'
 
-        print(selected_removal_methods)
         # Finally, remove the features based on the results of all methods
         removal_summary = self.remove_features(selected_removal_methods, keep_one_hot)
         # Emit signal to update the GUI with the final results

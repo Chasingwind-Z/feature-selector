@@ -12,10 +12,12 @@ class FeatureSelectorView(QMainWindow):
     rename_column_signal = pyqtSignal(int)
     set_target_column_signal = pyqtSignal(int)
 
-    def __init__(self):
+    def __init__(self, model, controller):
         super().__init__()
 
         # Initializing instance variables
+        self.plotting_controller = None
+        self.central_splitter = None
         self.about_action = None
         self.feature_select_action = None
         self.run_action = None
@@ -97,8 +99,8 @@ class FeatureSelectorView(QMainWindow):
         self.status_bar.showMessage("Ready")
 
     def init_layout(self):
-        central_splitter = QSplitter(Qt.Horizontal, self)
-        self.setCentralWidget(central_splitter)
+        self.central_splitter = QSplitter(Qt.Horizontal, self)
+        self.setCentralWidget(self.central_splitter)
 
         left_splitter = QSplitter(Qt.Vertical, self)
 
@@ -110,13 +112,7 @@ class FeatureSelectorView(QMainWindow):
         self.results_text = QTextEdit(self)
         left_splitter.addWidget(self.results_text)
 
-        central_splitter.addWidget(left_splitter)
-
-        right_panel = QDockWidget("Visualization", self)
-        placeholder_label = QLabel("Graphs will be displayed here.", self)
-        placeholder_label.setAlignment(Qt.AlignCenter)
-        right_panel.setWidget(placeholder_label)
-        central_splitter.addWidget(right_panel)
+        self.central_splitter.addWidget(left_splitter)
 
         # Create a widget to hold the results layout
         results_widget = QWidget()
@@ -135,6 +131,19 @@ class FeatureSelectorView(QMainWindow):
         # Add the results widget to the left splitter
         left_splitter = self.centralWidget().widget(0)
         left_splitter.addWidget(results_widget)
+
+    # right panel: visualization
+    def set_plotting_controller(self, plotting_controller):
+        self.plotting_controller = plotting_controller
+        # visualize
+        # Connect the plotting model to the plotting view
+        # Set up right panel for visualization
+        self.right_panel = QDockWidget("Visualization", self)
+        self.right_panel.setWidget(self.plotting_controller.view)
+
+        # Add right panel to the main window
+        self.central_splitter.addWidget(self.right_panel)
+        self.setCentralWidget(self.central_splitter)
 
     def apply_theme(self, theme):
         self.setStyleSheet(f"""

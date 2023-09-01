@@ -155,3 +155,8 @@ File 菜单里面的New File，新建文件后是新建一个数据表，用户�
 
         # Dictionary to hold removal operations
         self.removal_ops = {}，         我觉得这些变量确实也需要添加，因为后续画图功能需要使用到这些变量。                      同时，目前的逻辑是在所有的方法都处理完得出一个最终结果来一次性展示给用户，我现在想要的效果是每处理完一个方法，就返回该方法的相关信息（不同方法不一样，你可以看Feature selector Development.ipnb 的具体实现),最后处理完所有方法后，返回一个最终结果
+
+
+
+
+请你仔细阅读我的feature_selector_controller.py文件，帮我完成plotting_controller的调用，并给我修改后的代码

@@ -17,7 +17,7 @@ class FeatureSelectionDialog(QDialog):
 
     def init_ui(self):
         self.setWindowTitle("Feature Selection Methods Settings")
-        self.setGeometry(200, 200, 900, 600)
+        self.setGeometry(200, 200, 1000, 700)
 
         layout = QVBoxLayout()
         layout.setSpacing(10)
