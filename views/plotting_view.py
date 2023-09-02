@@ -1,71 +1,136 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
-from PyQt5.QtCore import pyqtSignal
-from PyQt5.QtWidgets import QWidget, QVBoxLayout, QPushButton, QComboBox, QLabel, QLineEdit, QHBoxLayout, QCheckBox
+from PyQt5.QtCore import pyqtSignal, Qt, QBuffer
+from PyQt5.QtGui import QCursor, QPixmap
+from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QPushButton, QComboBox, QLabel, QLineEdit, QSplitter, QStackedWidget,
+                             QMenu, QFileDialog, QFrame, QApplication, QFormLayout)
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 
 
 class PlottingView(QWidget):
     plot_requested = pyqtSignal(str, dict)  # 修改信号以传递额外的参数信息
 
-    def __init__(self, model):
+    def __init__(self, model, app):
         super().__init__()
+
+        self.app = app
         self.model = model
         self.figure = plt.figure()
         self.canvas = FigureCanvas(self.figure)
+        self.canvas.mpl_connect('button_press_event', self.context_menu)
+
         self.init_ui()
 
     def init_ui(self):
         layout = QVBoxLayout()
+        main_layout = QVBoxLayout()
 
-        # Dropdown for plot selection
+        # 控制面板
+        control_panel = QWidget()
+        control_layout = QVBoxLayout()
+
+        # 选择绘图类型的组合框
+        select_layout = QFormLayout()
         self.plot_dropdown = QComboBox()
         self.plot_dropdown.addItems(["Missing Values", "Unique Values", "Collinear Features", "Feature Importances"])
-        layout.addWidget(QLabel("Select Plot Type:"))
-        layout.addWidget(self.plot_dropdown)
+        select_layout.addRow("Select Plot Type:", self.plot_dropdown)
+        control_layout.addLayout(select_layout)
 
-        # Collinear Plot Settings
-        self.collinear_checkbox = QCheckBox("Plot All Correlations")
-        layout.addWidget(self.collinear_checkbox)
+        # 使用QStackedWidget动态显示参数输入
+        self.parameters_stacked_widget = QStackedWidget()
+        self.init_parameters_widgets()
+        control_layout.addWidget(self.parameters_stacked_widget)
 
-        # Feature Importances Settings
-        fi_layout = QHBoxLayout()
-        fi_layout.addWidget(QLabel("Number of Features to Plot:"))
-        self.fi_plot_n = QLineEdit("15")
-        fi_layout.addWidget(self.fi_plot_n)
-        fi_layout.addWidget(QLabel("Cumulative Importance Threshold:"))
-        self.fi_threshold = QLineEdit()
-        fi_layout.addWidget(self.fi_threshold)
-        layout.addLayout(fi_layout)
-
-        # Plot button
+        # Generate Plot按钮
         self.plot_button = QPushButton("Generate Plot")
         self.plot_button.clicked.connect(self.generate_plot)
-        layout.addWidget(self.plot_button)
+        control_layout.addWidget(self.plot_button)
 
-        # Message label for displaying notifications or errors
+        # 用于显示通知或错误的消息标签
         self.message_label = QLabel("")
-        layout.addWidget(self.message_label)
+        control_layout.addWidget(self.message_label)
 
-        # Add the canvas for plotting
-        layout.addWidget(self.canvas)
+        control_panel.setLayout(control_layout)
 
-        self.setLayout(layout)
+        # 添加绘图区域的边框
+        plotting_frame = QFrame(self)
+        plotting_frame.setFrameShape(QFrame.StyledPanel)
+        plotting_layout = QVBoxLayout()
+        plotting_layout.addWidget(self.canvas)
+        plotting_frame.setLayout(plotting_layout)
+
+        # 主窗口布局
+        splitter = QSplitter(Qt.Vertical)
+        splitter.addWidget(control_panel)
+        splitter.addWidget(plotting_frame)
+        splitter.setStretchFactor(0, 1)
+        splitter.setStretchFactor(1, 3)
+
+        main_layout.addWidget(splitter)
+        self.setLayout(main_layout)
+
+    def init_parameters_widgets(self):
+        # 对于每种绘图类型，我们都可以添加一个特定的参数窗口部件
+
+        # Missing Values: 无参数
+        self.parameters_stacked_widget.addWidget(QWidget())
+
+        # Unique Values: 无参数
+        self.parameters_stacked_widget.addWidget(QWidget())
+
+        # Collinear Features
+        collinear_widget = QWidget()
+        collinear_layout = QFormLayout()
+        self.plot_all_combobox = QComboBox()
+        self.plot_all_combobox.addItems(["True", "False"])
+        collinear_layout.addRow("Plot All:", self.plot_all_combobox)
+        collinear_widget.setLayout(collinear_layout)
+        self.parameters_stacked_widget.addWidget(collinear_widget)
+
+        # Feature Importances
+        feature_importances_widget = QWidget()
+        feature_importances_layout = QFormLayout()
+        self.plot_n_lineedit = QLineEdit("15")
+        self.plot_n_lineedit.setFixedWidth(50)
+        feature_importances_layout.addRow("Plot N:", self.plot_n_lineedit)
+        self.threshold_lineedit = QLineEdit("0.99")
+        self.threshold_lineedit.setFixedWidth(50)
+        feature_importances_layout.addRow("Threshold:", self.threshold_lineedit)
+        feature_importances_widget.setLayout(feature_importances_layout)
+        self.parameters_stacked_widget.addWidget(feature_importances_widget)
+
+        self.plot_dropdown.currentIndexChanged.connect(self.parameters_stacked_widget.setCurrentIndex)
 
     def generate_plot(self):
         plot_type = self.plot_dropdown.currentText()
-
-        # Create a dictionary for additional parameters
-        params = {}
+        parameters = {}
         if plot_type == "Collinear Features":
-            params['plot_all'] = self.collinear_checkbox.isChecked()
+            parameters['plot_all'] = self.plot_all_combobox.currentText() == "True"
         elif plot_type == "Feature Importances":
-            params['plot_n'] = int(self.fi_plot_n.text()) if self.fi_plot_n.text().isdigit() else 15
-            params['threshold'] = float(self.fi_threshold.text()) if self.fi_threshold.text() else None
+            parameters['plot_n'] = int(self.plot_n_lineedit.text())
+            parameters['threshold'] = float(self.threshold_lineedit.text())
+        self.plot_requested.emit(plot_type, parameters)
 
-        # Emit the signal with the plot type and the additional parameters
-        self.plot_requested.emit(plot_type, params)
+    def context_menu(self, event):
+        if event.button == 3:  # Right click
+            context_menu = QMenu(self)
+            save_action = context_menu.addAction("Save Figure")
+            copy_action = context_menu.addAction("Copy Figure")
+            action = context_menu.exec_(QCursor.pos())
+
+            if action == save_action:
+                file_path, _ = QFileDialog.getSaveFileName(self, "Save Figure", "", "PNG(*.png);;JPEG(*.jpg *.jpeg);;All Files(*.*)")
+                if file_path:
+                    self.figure.savefig(file_path)
+            elif action == copy_action:
+                clipboard = QApplication.clipboard()
+                buffer = QBuffer()
+                buffer.open(QBuffer.ReadWrite)
+                self.figure.savefig(buffer, format="png")
+                pixmap = QPixmap()
+                pixmap.loadFromData(buffer.data(), "png")
+                clipboard.setPixmap(pixmap)
 
     def plot_missing(self):
         """Histogram of missing fraction in each feature"""
@@ -148,11 +213,11 @@ class PlottingView(QWidget):
 
         # Set the ylabels
         ax.set_yticks([x + 0.5 for x in list(range(corr_matrix_plot.shape[0]))])
-        ax.set_yticklabels(list(corr_matrix_plot.index), size=int(160 / corr_matrix_plot.shape[0]));
+        ax.set_yticklabels(list(corr_matrix_plot.index), size=int(160 / corr_matrix_plot.shape[0]))
 
         # Set the xlabels
         ax.set_xticks([x + 0.5 for x in list(range(corr_matrix_plot.shape[1]))])
-        ax.set_xticklabels(list(corr_matrix_plot.columns), size=int(160 / corr_matrix_plot.shape[1]));
+        ax.set_xticklabels(list(corr_matrix_plot.columns), size=int(160 / corr_matrix_plot.shape[1]))
 
         ax.set_title(title, size=14)
 
@@ -181,29 +246,28 @@ class PlottingView(QWidget):
             self.message_label.setText('Feature importances have not been determined. Run `identify_zero_importance`')
             return
 
-        # Need to adjust number of features if greater than the features in the data
         if plot_n > feature_importances.shape[0]:
             plot_n = feature_importances.shape[0] - 1
 
         # Clear previous figures
         self.figure.clear()
 
+        # Adjust figure size
+        self.figure.set_size_inches(10, 8)  # Adjust width and height as needed
+
         # Make a horizontal bar chart of feature importances
         ax1 = self.figure.add_subplot(211)
 
-        # Need to reverse the index to plot most important on top
         ax1.barh(list(reversed(list(feature_importances.index[:plot_n]))),
                  feature_importances['normalized_importance'].iloc[:plot_n],
                  align='center', edgecolor='k')
 
-        # Set the yticks and labels
+        # Adjust ytick labels size
         ax1.set_yticks(list(reversed(list(feature_importances.index[:plot_n]))))
-        ax1.set_yticklabels(feature_importances['feature'].iloc[:plot_n], size=12)
+        ax1.set_yticklabels(feature_importances['feature'].iloc[:plot_n], size=10)  # Adjust font size
 
-        # Plot labeling
-        ax1.set_xlabel('Normalized Importance', size=16)
-        ax1.set_title('Feature Importances', size=18)
-        self.canvas.draw()
+        ax1.set_xlabel('Normalized Importance', size=14)
+        ax1.set_title('Feature Importances', size=16)
 
         # Cumulative importance plot
         ax2 = self.figure.add_subplot(212)
@@ -213,10 +277,12 @@ class PlottingView(QWidget):
         ax2.set_title('Cumulative Feature Importance', size=16)
 
         if threshold:
-            # Index of minimum number of features needed for cumulative importance threshold
             importance_index = np.min(np.where(feature_importances['cumulative_importance'] > threshold))
             ax2.vlines(x=importance_index + 1, ymin=0, ymax=1, linestyles='--', colors='blue')
-            # Redraw the canvas
-            self.canvas.draw()
             self.message_label.setText(
                 '%d features required for %0.2f of cumulative importance' % (importance_index + 1, threshold))
+
+        # Adjust layout to prevent overlap
+        self.figure.tight_layout()
+
+        self.canvas.draw()

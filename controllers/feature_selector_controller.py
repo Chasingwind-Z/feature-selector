@@ -1,33 +1,38 @@
 import pandas as pd
 from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QFileDialog, QTableWidgetItem, QMessageBox, QTableWidget, QInputDialog, QLineEdit
+from PyQt5.QtWidgets import QFileDialog, QTableWidgetItem, QMessageBox, QTableWidget, QInputDialog, QLineEdit, QDialog
+
+from views import themes
 from views.feature_selection_dialog import FeatureSelectionDialog
 from models.feature_selector_model import FeatureSelectorModel
 from views.feature_selector_view import FeatureSelectorView
-from views.themes import LIGHT_THEME, DARK_THEME
+from views.themes import  ALL_THEMES
 
 from views.plotting_view import PlottingView
 from models.plotting_model import PlottingModel
 from controllers.plotting_controller import PlottingController
+from views.themes_dialog import ThemesDialog
 
 
 class FeatureSelectorController:
-    def __init__(self):
+    def __init__(self, app):
+        self.app = app
+        self.current_theme_index = 0
         self.current_page = None
         self.page_size = None
         self.data = None
         self.result_data = None
         self.model = FeatureSelectorModel()
-        self.view = FeatureSelectorView(self.model, self)
+        self.view = FeatureSelectorView(self.app)
         self.feature_methods_dialog = FeatureSelectionDialog()
 
         self.plotting_model = PlottingModel(self.model)  # 创建 PlottingModel 实例并传入 FeatureSelectorModel 的数据
-        self.plotting_view = PlottingView(self.plotting_model)  # 创建 PlottingView 实例
+        self.plotting_view = PlottingView(self.plotting_model, app)  # 创建 PlottingView 实例
         self.plotting_controller = PlottingController(self.plotting_model,
                                                       self.plotting_view)  # 创建 PlottingController 实例
 
         self.view.set_plotting_controller(self.plotting_controller)
-        self.current_theme = LIGHT_THEME
+        self.current_theme = ALL_THEMES[self.current_theme_index]
         self.setup_connections()
         self.view.show()
 
@@ -135,11 +140,13 @@ class FeatureSelectorController:
             self.view.status_bar.showMessage("Error saving file.")
 
     def switch_theme(self):
-        if self.current_theme == LIGHT_THEME:
-            self.current_theme = DARK_THEME
-        else:
-            self.current_theme = LIGHT_THEME
-        self.view.apply_theme(self.current_theme)
+        dialog = ThemesDialog(self.view.current_theme, self.view)
+        result = dialog.exec_()
+
+        if result == QDialog.Accepted:
+            selected_theme = dialog.selected_theme()
+            # 直接使用selected_theme作为应用的主题，因为它现在是一个字典
+            self.view.apply_theme(selected_theme)
 
     def execute_selected_methods(self):
         # Check if data has been loaded in the GUI

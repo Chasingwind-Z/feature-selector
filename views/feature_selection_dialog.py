@@ -65,6 +65,7 @@ class FeatureSelectionDialog(QDialog):
                 hbox.addWidget(correlation_threshold_widget)
                 hbox.addWidget(QLabel("One Hot:"))
                 hbox.addWidget(one_hot_combobox)
+                one_hot_combobox.addItems(["True", "False"])
                 if range_text:
                     hbox.addWidget(QLabel(range_text))
 
@@ -163,6 +164,7 @@ class FeatureSelectionDialog(QDialog):
             # 获取 "Collinear Features" 方法的 one_hot 下拉框状态
             _, one_hot_combobox = collinear_widgets
             one_hot_state = one_hot_combobox.currentText() == 'True'
+            print(one_hot_state)
 
             # 情况一：只选择了前两种方法
             if (

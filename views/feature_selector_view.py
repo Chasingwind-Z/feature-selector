@@ -1,20 +1,24 @@
+import qdarkstyle
 from PyQt5.QtCore import pyqtSignal, pyqtSlot
 from PyQt5.QtWidgets import (QMainWindow, QLabel, QTextEdit, QVBoxLayout,
                              QWidget, QTableWidget, QMenuBar, QSplitter, QStatusBar,
                              QAction, QDockWidget, QHBoxLayout, QPushButton, QTabWidget,
                              QMenu, QTableWidgetItem)
 from PyQt5.QtCore import Qt
-from views.themes import LIGHT_THEME, DARK_THEME
+
 from views.about_dialog import AboutDialog
+from views.themes import ALL_THEMES, THEME_NAME_TO_VAR
 
 
 class FeatureSelectorView(QMainWindow):
     rename_column_signal = pyqtSignal(int)
     set_target_column_signal = pyqtSignal(int)
 
-    def __init__(self, model, controller):
+    def __init__(self, app):
         super().__init__()
 
+        self.current_theme = None
+        self.app = app
         # Initializing instance variables
         self.plotting_controller = None
         self.central_splitter = None
@@ -40,7 +44,7 @@ class FeatureSelectorView(QMainWindow):
 
         # GUI Components initialization
         self.init_ui()
-        self.apply_theme(LIGHT_THEME)
+        self.apply_theme(ALL_THEMES[0])
 
         self.target_column_index = None
 
@@ -53,6 +57,10 @@ class FeatureSelectorView(QMainWindow):
         self.init_menu_bar()
         self.init_status_bar()
         self.init_layout()
+
+        # 设置QSplitter的初始大小比例
+        self.central_splitter.setStretchFactor(0, 6)
+        self.central_splitter.setStretchFactor(1, 4)
 
     def init_menu_bar(self):
         menu_bar = QMenuBar(self)
@@ -99,6 +107,7 @@ class FeatureSelectorView(QMainWindow):
         self.status_bar.showMessage("Ready")
 
     def init_layout(self):
+        # Set up the central splitter
         self.central_splitter = QSplitter(Qt.Horizontal, self)
         self.setCentralWidget(self.central_splitter)
 
@@ -131,6 +140,8 @@ class FeatureSelectorView(QMainWindow):
         # Add the results widget to the left splitter
         left_splitter = self.centralWidget().widget(0)
         left_splitter.addWidget(results_widget)
+        # 根据您的需要调整以下数字
+        left_splitter.setSizes([500, 300])  # 例如，数据表占500像素，结果文本占300像素
 
     # right panel: visualization
     def set_plotting_controller(self, plotting_controller):
@@ -146,25 +157,46 @@ class FeatureSelectorView(QMainWindow):
         self.setCentralWidget(self.central_splitter)
 
     def apply_theme(self, theme):
-        self.setStyleSheet(f"""
-            QWidget {{
-                background-color: {theme['background']};
-                color: {theme['foreground']};
-            }}
-            QPushButton {{
-                background-color: {theme['button']};
-                color: {theme['button_text']};
-            }}
-            QPushButton:hover {{
-                background-color: {theme['highlight']};
-            }}
-            QMenuBar::item:selected {{
-                background-color: {theme['highlight']};
-            }}
-            QMenu::item:selected {{
-                background-color: {theme['highlight']};
-            }}
-        """)
+        # 检查是否是QDarkStyle或QLightStyle主题
+        if theme.get("qss_path") in ["QDarkStyleSheet", "QLightStyleSheet"]:
+            import qdarkstyle
+            if theme["qss_path"] == "QDarkStyleSheet":
+                stylesheet = qdarkstyle.load_stylesheet(qt_api='pyqt5')
+            else:
+                from qdarkstyle import LightPalette
+                stylesheet = qdarkstyle.load_stylesheet(qt_api='pyqt5', palette=LightPalette())
+            self.setStyleSheet(stylesheet)
+        # 检查是否是Qt-Material主题
+        elif "material" in theme:
+            import qt_material
+            qt_material.apply_stylesheet(self, theme=theme["material"])
+        # 检查是否是自定义QSS主题
+        elif "qss" in theme:
+            self.setStyleSheet(theme["qss"])
+        # 否则，应用常规主题
+        else:
+            self.setStyleSheet(f"""
+                QWidget {{
+                    background-color: {theme['background']};
+                    color: {theme['foreground']};
+                }}
+                QPushButton {{
+                    background-color: {theme['button']};
+                    color: {theme['button_text']};
+                    border: 1px solid {theme['highlight']};
+                    padding: 5px;
+                    border-radius: 3px;
+                }}
+                QPushButton:hover {{
+                    background-color: {theme['button_hover']};
+                }}
+                QMenuBar::item:selected {{
+                    background-color: {theme['highlight']};
+                }}
+                QMenu::item:selected {{
+                    background-color: {theme['highlight']};
+                }}
+            """)
 
     def add_new_data_table(self, title="Untitled", default_data=True):
         data_table = QTableWidget(10, 5)
