@@ -1,13 +1,13 @@
-import qdarkstyle
 from PyQt5.QtCore import pyqtSignal, pyqtSlot
-from PyQt5.QtWidgets import (QMainWindow, QLabel, QTextEdit, QVBoxLayout,
+from PyQt5.QtWidgets import (QMainWindow, QTextEdit, QVBoxLayout,
                              QWidget, QTableWidget, QMenuBar, QSplitter, QStatusBar,
                              QAction, QDockWidget, QHBoxLayout, QPushButton, QTabWidget,
                              QMenu, QTableWidgetItem)
 from PyQt5.QtCore import Qt
 
 from views.about_dialog import AboutDialog
-from views.themes import ALL_THEMES, THEME_NAME_TO_VAR
+from views.usage_dialog import UsageDialog
+from views.themes import ALL_THEMES
 
 
 class FeatureSelectorView(QMainWindow):
@@ -17,6 +17,7 @@ class FeatureSelectorView(QMainWindow):
     def __init__(self, app):
         super().__init__()
 
+        self.usage_action = None
         self.current_theme = None
         self.app = app
         # Initializing instance variables
@@ -36,8 +37,9 @@ class FeatureSelectorView(QMainWindow):
         self.results_layout = QVBoxLayout()  # Layout to display the results table
 
         # 创建Stop和Save Results按钮，并设置为初始隐藏
-        self.stop_button = QPushButton("Stop")
-        self.stop_button.setVisible(False)  # 初始设置为隐藏
+        self.stop_button = QPushButton("Stop", self)
+        self.hide_stop_button()  # 初始设置为隐藏
+
         self.save_results_button = QPushButton("Save Results")
         self.save_results_button.setFixedWidth(100)  # 设置按钮的宽度
         self.save_results_button.setVisible(False)  # 初始设置为隐藏
@@ -93,13 +95,17 @@ class FeatureSelectorView(QMainWindow):
 
         help_menu = QMenu("Help", self)
         self.about_action = QAction("About", self)
+        self.usage_action = QAction("Usage", self)
         help_menu.addAction(self.about_action)
+        help_menu.addAction(self.usage_action)
         menu_bar.addMenu(help_menu)
 
         self.setMenuBar(menu_bar)
 
         self.about_dialog = AboutDialog(self)
         self.about_action.triggered.connect(self.about_dialog.show)
+        self.usage_dialog = UsageDialog(self)
+        self.usage_action.triggered.connect(self.usage_dialog.show)
 
     def init_status_bar(self):
         self.status_bar = QStatusBar()
@@ -272,9 +278,6 @@ class FeatureSelectorView(QMainWindow):
             self.results_text.append(summary)
             self.results_text.append("\n")
 
-        # 显示保存结果按钮
-        self.save_results_button.setVisible(True)
-
     def show_save_results_button(self):
         self.save_results_button.setVisible(True)
 
@@ -286,3 +289,5 @@ class FeatureSelectorView(QMainWindow):
 
     def hide_stop_button(self):
         self.stop_button.setVisible(False)
+
+

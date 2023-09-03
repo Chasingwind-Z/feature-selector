@@ -2,8 +2,7 @@ from itertools import chain
 
 import numpy as np
 import pandas as pd
-from PyQt5.QtCore import pyqtSignal, QObject
-from sklearn.exceptions import NotFittedError
+from PyQt5.QtCore import pyqtSignal, QObject, QThread
 from sklearn.inspection import permutation_importance
 from sklearn.model_selection import train_test_split
 import lightgbm as lgb
@@ -54,6 +53,9 @@ class FeatureSelectorModel(QObject):
                        'Low Importance Features']
 
         for method, params in selected_methods_and_params.items():
+            if QThread.currentThread().isInterruptionRequested():
+                return
+
             # Match the method name with the appropriate function call
             if method == 'Missing Values':
                 selected_removal_methods.append('missing')
@@ -425,4 +427,10 @@ class FeatureSelectorModel(QObject):
 
         return {"removal_summary": removal_summary}
 
+    def request_stop(self):
+        """Set the stop_requested attribute to True."""
+        self.stop_requested = True
 
+    def reset_stop(self):
+        """Reset the stop_requested attribute to False."""
+        self.stop_requested = False

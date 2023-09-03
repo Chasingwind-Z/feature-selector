@@ -2,16 +2,17 @@ import pandas as pd
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QFileDialog, QTableWidgetItem, QMessageBox, QTableWidget, QInputDialog, QLineEdit, QDialog
 
-from views import themes
 from views.feature_selection_dialog import FeatureSelectionDialog
-from models.feature_selector_model import FeatureSelectorModel
 from views.feature_selector_view import FeatureSelectorView
-from views.themes import  ALL_THEMES
-
-from views.plotting_view import PlottingView
-from models.plotting_model import PlottingModel
-from controllers.plotting_controller import PlottingController
+from views.themes import ALL_THEMES
 from views.themes_dialog import ThemesDialog
+from views.plotting_view import PlottingView
+
+from models.feature_selector_model import FeatureSelectorModel
+from models.feature_selector_thread import FeatureSelectionThread
+from models.plotting_model import PlottingModel
+
+from controllers.plotting_controller import PlottingController
 
 
 class FeatureSelectorController:
@@ -41,7 +42,7 @@ class FeatureSelectorController:
         self.view.new_file_action.triggered.connect(self.new_file)
         self.view.save_file_action.triggered.connect(self.save_file)
         self.view.save_results_button.clicked.connect(self.save_results)
-        self.view.stop_button.clicked.connect(self.stop_execution)
+        self.view.stop_button.clicked.connect(self.handle_stop_request)
         self.view.switch_theme_action.triggered.connect(self.switch_theme)
         self.view.run_action.triggered.connect(self.execute_selected_methods)
         self.view.feature_select_action.triggered.connect(self.open_feature_selection_dialog)
@@ -100,11 +101,8 @@ class FeatureSelectorController:
             # User has scrolled to the bottom, load the next page
             self.load_page(data, table)
 
-    def stop_execution(self):
-        # 这里添加停止执行的代码
-
-        # 隐藏Stop按钮
-        self.view.hide_stop_button()
+    def handle_stop_request(self):
+        self.feature_selection_thread.requestInterruption()
 
     def save_results(self):
         options = QFileDialog.Options()
@@ -166,6 +164,9 @@ class FeatureSelectorController:
             QMessageBox.warning(self.view, "Select Target", "Please select a target column before running.")
             return
 
+        # Hide the save_results button if it's already visible
+        if self.view.save_results_button.isVisible():
+            self.view.hide_save_results_button()
         # 显示Stop按钮
         self.view.show_stop_button()
 
@@ -178,36 +179,15 @@ class FeatureSelectorController:
 
         # Load the data in the model
         self.model.load_data(data)
-
-        # try:
-        #     success = self.model.method_result_signal.connect(self.view.display_method_result)
-        #     print("Connection success:", success)
-        # except Exception as e:
-        #     print("Exception occurred during connection:", e)
-        #
-        # try:
-        #     success = self.model.method_result_signal.connect(self.view.display_final_results)
-        #     print("Connection success:", success)
-        # except Exception as e:
-        #     print("Exception occurred during connection:", e)
-
         # Connect signals to slots for updating the view
         self.model.method_result_signal.connect(self.view.display_method_result)
         self.model.final_results_signal.connect(self.view.display_final_results)
-        print(2)
-        # Perform feature selection in the model
-        result_data = self.model.select_features(methods, target_column_name, keep_one_hot)
-        print(3)
-        # 隐藏Stop按钮，显示Save Results按钮
-        self.view.hide_stop_button()
-        self.view.show_save_results_button()
 
-        # Save the result data for further use
-        self.result_data = result_data
-
-        # Disconnect the signals to avoid any unwanted connections
-        self.model.method_result_signal.disconnect(self.view.display_method_result)
-        self.model.final_results_signal.disconnect(self.view.display_final_results)
+        # Using the thread to perform feature selection
+        self.feature_selection_thread = FeatureSelectionThread(self.model, methods, target_column_name, keep_one_hot)
+        self.feature_selection_thread.start()
+        self.feature_selection_thread.finished.connect(
+            self.on_feature_selection_done)  # connect to a method to handle after selection
 
     def open_feature_selection_dialog(self):
         self.feature_methods_dialog.exec_()
@@ -227,16 +207,25 @@ class FeatureSelectorController:
             current_table.item(row, column_index).setBackground(Qt.yellow)
         self.view.status_bar.showMessage(f"Set column {column_index} as Target")
 
-    # def extract_data_from_table(self, current_table):
-    #     rows, cols = current_table.rowCount(), current_table.columnCount()
-    #     data = []
-    #     for row in range(rows):
-    #         row_data = []
-    #         for col in range(cols):
-    #             item = current_table.item(row, col)
-    #             row_data.append(item.text() if item else "")
-    #         data.append(row_data)
+    def on_feature_selection_done(self):
+        # 隐藏Stop按钮，显示Save Results按钮
+        self.view.hide_stop_button()
+        self.view.show_save_results_button()
+        # Save the result data for further use
+        self.result_data = self.model.result_data
+
+        # Disconnect the signals to avoid any unwanted connections
+        self.model.method_result_signal.disconnect(self.view.display_method_result)
+        self.model.final_results_signal.disconnect(self.view.display_final_results)
+
+    # try:
+    #     success = self.model.method_result_signal.connect(self.view.display_method_result)
+    #     print("Connection success:", success)
+    # except Exception as e:
+    #     print("Exception occurred during connection:", e)
     #
-    #     headers = [current_table.horizontalHeaderItem(col).text() for col in range(cols)]
-    #     df = pd.DataFrame(data, columns=headers)
-    #     return df
+    # try:
+    #     success = self.model.method_result_signal.connect(self.view.display_final_results)
+    #     print("Connection success:", success)
+    # except Exception as e:
+    #     print("Exception occurred during connection:", e)

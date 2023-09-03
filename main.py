@@ -7,3 +7,15 @@ if __name__ == '__main__':
     controller = FeatureSelectorController(app)
     controller.view.show()
     sys.exit(app.exec_())
+
+
+
+
+
+
+
+
+
+
+
+
